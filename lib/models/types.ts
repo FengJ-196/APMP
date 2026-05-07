@@ -62,6 +62,11 @@ export interface ProjectFile {
   size_bytes: number;
   /** Raw file content as a Buffer */
   data: Buffer;
+  /** Results from PDF extraction (text and image references) */
+  extraction_results?: {
+    text: string;
+    images: Array<{ url: string; caption: string }>;
+  };
   /** ISO-8601 timestamp of upload */
   uploaded_at: Date;
 }
