@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     }
 
     // --- Lookup user ---
-    const user = findUserByEmail(email);
+    const user = await findUserByEmail(email);
     if (!user) {
       return NextResponse.json(
         { error: GENERIC_AUTH_ERROR } satisfies AuthError,

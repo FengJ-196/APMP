@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     // --- Duplicate check ---
-    const existing = findUserByEmail(email);
+    const existing = await findUserByEmail(email);
     if (existing) {
       return NextResponse.json(
         { error: 'An account with this email already exists' } satisfies AuthError,
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     // --- Create user ---
     const passwordHash = await hashPassword(password);
-    const user = createUser(email, passwordHash);
+    const user = await createUser(email, passwordHash);
 
     // --- Generate tokens ---
     const tokenPayload = { userId: user.id, email: user.email };
