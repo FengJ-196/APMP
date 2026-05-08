@@ -1,86 +1,56 @@
 /**
- * In-memory Project store.
- *
- * Mimics a MongoDB collection for development and testing.
- * In production, replace with actual MongoDB driver calls.
- *
- * Key design decisions:
- * - IDs are generated as 24-char hex strings matching MongoDB ObjectId format
- * - Projects are stored in a Map keyed by id for O(1) lookup
- * - findProjectsByUserId performs a linear scan (mirrors a MongoDB query with index)
+ * MongoDB-backed Project store.
  */
+import dbConnect from '../db';
+import ProjectModel from './schemas/Project';
 import type { Project, CreateProjectInput } from './types';
 
-const projects = new Map<string, Project>();
-
-/**
- * Generate a 24-character hex string that mimics a MongoDB ObjectId.
- *
- * Structure (following ObjectId spec loosely):
- *  - 8 chars: timestamp in seconds (hex)
- *  - 10 chars: random hex
- *  - 6 chars: incrementing counter (hex)
- */
-let counterValue = 0;
-
-function generateObjectId(): string {
-  const timestamp = Math.floor(Date.now() / 1000)
-    .toString(16)
-    .padStart(8, '0');
-
-  const random = Array.from({ length: 10 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('');
-
-  counterValue++;
-  const counter = counterValue.toString(16).padStart(6, '0');
-
-  return `${timestamp}${random}${counter}`;
+function mapToProjectType(doc: any): Project {
+  return {
+    id: doc._id.toString(),
+    title: doc.title,
+    userId: doc.userId.toString(),
+    status: doc.status,
+    createdAt: doc.createdAt,
+  };
 }
 
 /**
- * Create a new project and store it.
- * Defaults `status` to `'active'` and `created_at` to now.
+ * Create a new project in MongoDB.
  */
-export function createProject(input: CreateProjectInput): Project {
-  const project: Project = {
-    id: generateObjectId(),
+export async function createProject(input: CreateProjectInput): Promise<Project> {
+  await dbConnect();
+  const project = await ProjectModel.create({
     title: input.title,
-    user_id: input.user_id,
+    userId: input.userId,
     status: input.status ?? 'active',
-    created_at: new Date(),
-  };
-
-  projects.set(project.id, project);
-  return project;
+  });
+  return mapToProjectType(project);
 }
 
 /**
  * Find a single project by its id.
- * @returns The project, or `undefined` if not found.
  */
-export function findProjectById(id: string): Project | undefined {
-  return projects.get(id);
+export async function findProjectById(id: string): Promise<Project | undefined> {
+  await dbConnect();
+  const project = await ProjectModel.findById(id).lean();
+  if (!project) return undefined;
+  return mapToProjectType(project);
 }
 
 /**
  * Find all projects belonging to a given user.
- * @returns An array of projects (empty if none found).
  */
-export function findProjectsByUserId(userId: string): Project[] {
-  const result: Project[] = [];
-  for (const project of projects.values()) {
-    if (project.user_id === userId) {
-      result.push(project);
-    }
-  }
-  return result;
+export async function findProjectsByUserId(userId: string): Promise<Project[]> {
+  await dbConnect();
+  const projects = await ProjectModel.find({ userId: userId }).lean();
+  return projects.map(mapToProjectType);
 }
 
 /**
  * Clear all projects. Used in tests.
  */
-export function clearProjects(): void {
-  projects.clear();
-  counterValue = 0;
+export async function clearProjects(): Promise<void> {
+  await dbConnect();
+  await ProjectModel.deleteMany({});
 }
