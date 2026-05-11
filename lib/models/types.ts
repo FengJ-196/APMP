@@ -1,6 +1,6 @@
 /**
  * Core domain model types for the APMP platform.
- * 
+ *
  * Designed with MongoDB conventions:
  * - `id` maps to MongoDB `_id` (ObjectId as hex string)
  * - Dates stored as ISO strings (MongoDB ISODate)
@@ -49,30 +49,30 @@ export const MIME_TYPE_MAP: Record<string, AllowedMimeType> = {
 /** All allowed file extensions */
 export const ALLOWED_EXTENSIONS = Object.keys(MIME_TYPE_MAP);
 
+/** Where the file is physically stored */
+export type StorageType = 'cloudinary' | 'local';
+
 export interface ProjectFile {
   /** MongoDB ObjectId as 24-char hex string */
   id: string;
   /** Reference to the owning project's id */
-  project_id: string;
+  projectId: string;
+  /** Reference to the owning user's id */
+  userId: string;
   /** Original filename as uploaded (e.g. "Figure1.png") */
-  filename: string;
+  originalName: string;
   /** MIME type derived from file extension */
-  mime_type: AllowedMimeType;
-  /** File size in bytes */
-  size_bytes: number;
-  /** Raw file content as a Buffer */
-  data: Buffer;
-  /** Results from PDF extraction (text and image references) */
-  extraction_results?: {
-    text: string;
-    images: Array<{ url: string; caption: string }>;
-  };
+  contentType: AllowedMimeType;
+  /** The actual binary data stored in MongoDB */
+  fileData: Buffer | string; // Buffer in Node, base64 string in JSON
   /** ISO-8601 timestamp of upload */
-  uploaded_at: Date;
+  createdAt: Date;
 }
 
 export interface UploadFileInput {
-  project_id: string;
-  filename: string;
-  data: Buffer;
+  projectId: string;
+  userId: string;
+  originalName: string;
+  contentType: AllowedMimeType;
+  fileData: Buffer;
 }
