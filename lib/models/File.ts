@@ -1,10 +1,11 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import type { AllowedMimeType } from '@/dtos';
 
 export interface IFile extends Document {
   projectId: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
   originalName: string;
-  contentType: string;
+  contentType: AllowedMimeType;
   fileData: Buffer;
   createdAt: Date;
 }
@@ -28,6 +29,10 @@ const FileSchema = new Schema<IFile>({
   contentType: {
     type: String,
     required: true,
+    enum: {
+      values: ['image/png', 'image/jpeg', 'text/markdown', 'application/pdf'],
+      message: '{VALUE} is not a supported file type',
+    },
   },
   fileData: {
     type: Buffer,
