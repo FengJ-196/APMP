@@ -1,29 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findFileById } from '@/lib/models/files';
+import { FileService } from '@/lib/services/FileService';
 
-/**
- * GET /api/files/[id]
- * Retrieves binary file data directly from MongoDB.
- */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const file = await findFileById(id);
+    const file = await FileService.getFileById(id);
 
     if (!file) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    // Mongoose Buffers can be converted directly to Uint8Array for response
     const data = file.fileData as Buffer;
 
     return new NextResponse(data, {
       headers: {
         'Content-Type': file.contentType,
-        'Content-Disposition': `inline; filename="${file.original_name}"`,
+        'Content-Disposition': `inline; filename="${file.originalName}"`,
         'Cache-Control': 'public, max-age=31536000, immutable',
       },
     });

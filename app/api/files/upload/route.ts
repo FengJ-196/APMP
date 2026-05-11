@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleFileUpload } from '@/lib/services/uploadService';
+import { FileService } from '@/lib/services/FileService';
 
-/**
- * POST /api/files/upload
- * Handles multipart file uploads and stores them in MongoDB.
- */
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -21,7 +17,7 @@ export async function POST(request: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const savedFile = await handleFileUpload({
+    const savedFile = await FileService.uploadFile({
       projectId,
       userId,
       filename: file.name,
