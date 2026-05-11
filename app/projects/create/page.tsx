@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import { projectsApi } from '@/lib/api';
 
 export default function CreateProjectPage() {
   const router = useRouter();
@@ -20,21 +21,14 @@ export default function CreateProjectPage() {
     setError(null);
 
     try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: formData.name,
-          userId: '645a1b2c3d4e5f6a7b8c9d0e', // Valid mock ObjectId
-        }),
+      const project = await projectsApi.create({
+        title: formData.name,
+        userId: '645a1b2c3d4e5f6a7b8c9d0e', // Valid mock ObjectId
       });
 
-      if (!res.ok) throw new Error('Failed to create project');
-
-      const project = await res.json();
       router.push(`/projects/${project.id}`);
-    } catch (err) {
-      setError('Could not create project. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'Could not create project. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@
 
 import React, { useState, FormEvent } from 'react';
 import Link from 'next/link';
+import { userApi } from '@/lib/api';
 
 interface FormErrors {
   email?: string;
@@ -69,18 +70,7 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setErrors({ general: data.error || 'Registration failed' });
-        return;
-      }
+      const data = await userApi.register({ email, password });
 
       // Store tokens
       localStorage.setItem('accessToken', data.tokens.accessToken);
@@ -91,8 +81,8 @@ export default function RegisterPage() {
       setTimeout(() => {
         window.location.href = '/';
       }, 1200);
-    } catch {
-      setErrors({ general: 'Network error. Please try again.' });
+    } catch (err: any) {
+      setErrors({ general: err.message || 'Network error. Please try again.' });
     } finally {
       setIsLoading(false);
     }

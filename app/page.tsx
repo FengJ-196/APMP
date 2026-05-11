@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Plus, FileText, ChevronRight, Loader2, BarChart3, Settings } from 'lucide-react';
+import { projectsApi } from '@/lib/api';
 
 interface Project {
   id: string;
@@ -16,10 +17,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/projects/all')
-      .then(res => res.json())
+    projectsApi.getAll('645a1b2c3d4e5f6a7b8c9d0e')
       .then(data => {
-        setProjects(Array.isArray(data) ? data : []);
+        setProjects(Array.isArray(data) ? data as any : []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
