@@ -2,10 +2,10 @@
  * MongoDB-backed Project store.
  */
 import dbConnect from '../db';
-import ProjectModel from './schemas/Project';
-import type { Project, CreateProjectInput } from './types';
+import { Project as ProjectModel } from '../models';
+import type { ProjectDTO, CreateProjectInputDTO } from '@/dtos';
 
-function mapToProjectType(doc: any): Project {
+function mapToProjectType(doc: any): ProjectDTO {
   return {
     id: doc._id.toString(),
     title: doc.title,
@@ -18,7 +18,7 @@ function mapToProjectType(doc: any): Project {
 /**
  * Create a new project in MongoDB.
  */
-export async function createProject(input: CreateProjectInput): Promise<Project> {
+export async function createProject(input: CreateProjectInputDTO): Promise<ProjectDTO> {
   await dbConnect();
   const project = await ProjectModel.create({
     title: input.title,
@@ -31,7 +31,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
 /**
  * Find a single project by its id.
  */
-export async function findProjectById(id: string): Promise<Project | undefined> {
+export async function findProjectById(id: string): Promise<ProjectDTO | undefined> {
   await dbConnect();
   const project = await ProjectModel.findById(id).lean();
   if (!project) return undefined;
@@ -41,7 +41,7 @@ export async function findProjectById(id: string): Promise<Project | undefined> 
 /**
  * Find all projects belonging to a given user.
  */
-export async function findProjectsByUserId(userId: string): Promise<Project[]> {
+export async function findProjectsByUserId(userId: string): Promise<ProjectDTO[]> {
   await dbConnect();
   const projects = await ProjectModel.find({ userId: userId }).lean();
   return projects.map(mapToProjectType);
