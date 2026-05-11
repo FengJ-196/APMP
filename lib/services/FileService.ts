@@ -1,5 +1,5 @@
 import path from 'path';
-import { uploadFile, findFilesByProjectId, findFileById, deleteFile } from '../repositories/files';
+import { uploadFile, findFilesByProjectId, findFileById, deleteFile } from '@/lib/repositories';
 import { UploadFileInputSchema, type FileDTO, MIME_TYPE_MAP, type AllowedMimeType } from '@/dtos';
 
 export interface UploadParams {
