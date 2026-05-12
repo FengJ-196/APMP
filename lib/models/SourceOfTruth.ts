@@ -1,73 +1,136 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import type { SourceOfTruthDTO } from '@/dtos';
+import dbConnect from '../db';
 
-export interface ISectionBlock {
-  blockId: string;
-  order: number;
-  type: 'heading' | 'text' | 'table' | 'diagram';
-  markdown?: string;
-  diagram?: {
-    mermaidCode: string;
-    diagramType: 'flowchart' | 'sequence' | 'er' | 'usecase' | 'other';
-    confidence: number;
-  };
-  userVerified: boolean;
-  userEditedAt?: Date;
-  originalAiContent?: string;
+export interface IVersionSnapshot {
+    versionNumber: number;
+    content: string;
+    savedAt: Date;
 }
 
 export interface ISourceOfTruth extends Document {
-  projectId: mongoose.Types.ObjectId;
-  fileId: mongoose.Types.ObjectId;
-  versionNumber: number;
-  blocks: ISectionBlock[];
-  compiledMarkdown: string;
-  status: 'draft' | 'under_review' | 'approved';
-  approvedBy?: mongoose.Types.ObjectId;
-  approvedAt?: Date;
-  changesSummary?: string;
-  backup?: {
+    projectId: mongoose.Types.ObjectId;
+    content: string;
     versionNumber: number;
-    blocks: any[];
-    compiledMarkdown: string;
-    changesSummary: string;
-    savedAt: Date;
-  };
-  createdAt: Date;
-  updatedAt: Date;
+    versionHistory: IVersionSnapshot[];
+    createdAt: Date;
+    updatedAt: Date;
+
+    snapshotVersion(): void;
 }
 
-const SectionBlockSchema = new Schema<ISectionBlock>({
-  blockId: { type: String, required: true },
-  order: { type: Number, required: true },
-  type: { type: String, enum: ['heading', 'text', 'table', 'diagram'], required: true },
-  markdown: { type: String },
-  diagram: {
-    mermaidCode: { type: String },
-    diagramType: { type: String, enum: ['flowchart', 'sequence', 'er', 'usecase', 'other'] },
-    confidence: { type: Number, min: 0, max: 1 },
-  },
-  userVerified: { type: Boolean, default: false },
-  userEditedAt: { type: Date },
-  originalAiContent: { type: String },
-}, { _id: false });
+const VersionSnapshotSchema = new Schema<IVersionSnapshot>(
+    {
+        versionNumber: { type: Number, required: true },
+        content: { type: String, required: true },
+        savedAt: { type: Date, default: Date.now },
+    },
+    { _id: false }
+);
 
-const SourceOfTruthSchema = new Schema<ISourceOfTruth>({
-  projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, unique: true },
-  fileId: { type: Schema.Types.ObjectId, ref: 'File', required: true },
-  versionNumber: { type: Number, required: true, default: 1 },
-  blocks: [SectionBlockSchema],
-  compiledMarkdown: { type: String },
-  status: { type: String, enum: ['draft', 'under_review', 'approved'], default: 'draft' },
-  approvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-  approvedAt: { type: Date },
-  changesSummary: { type: String },
-  backup: {
-    versionNumber: { type: Number },
-    blocks: [{ type: Schema.Types.Mixed }],
-    compiledMarkdown: { type: String },
-    changesSummary: { type: String },
-    savedAt: { type: Date },
-  },
-}, { timestamps: true });
+const SourceOfTruthSchema = new Schema<ISourceOfTruth>(
+    {
+        projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, unique: true },
+        content: { type: String, default: '' },
+        versionNumber: { type: Number, required: true, default: 1 },
+        versionHistory: [VersionSnapshotSchema],
+    },
+    { timestamps: true }
+);
 
-export default mongoose.models.SourceOfTruth || mongoose.model<ISourceOfTruth>('SourceOfTruth', SourceOfTruthSchema);
+/**
+ * Snapshots the current state into versionHistory before a change.
+ * Increments versionNumber.
+ */
+SourceOfTruthSchema.methods.snapshotVersion = function (): void {
+    this.versionHistory.push({
+        versionNumber: this.versionNumber,
+        content: this.content,
+        savedAt: new Date(),
+    });
+
+    this.versionNumber += 1;
+};
+
+const SourceOfTruthModel = mongoose.models.SourceOfTruth || mongoose.model<ISourceOfTruth>('SourceOfTruth', SourceOfTruthSchema);
+export default SourceOfTruthModel;
+
+export interface CreateSourceOfTruthInput {
+  projectId: string;
+  content?: string;
+}
+
+export function mapToSourceOfTruthDTO(doc: ISourceOfTruth): SourceOfTruthDTO {
+  return {
+    id: doc._id.toString(),
+    projectId: doc.projectId.toString(),
+    content: doc.content,
+    versionNumber: doc.versionNumber,
+    versionHistory: (doc.versionHistory ?? []).map((v: IVersionSnapshot) => ({
+      versionNumber: v.versionNumber,
+      content: v.content,
+      savedAt: v.savedAt,
+    })),
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
+function isValidObjectId(id: string): boolean {
+  return mongoose.Types.ObjectId.isValid(id);
+}
+
+export async function createSourceOfTruth(
+    input: CreateSourceOfTruthInput
+): Promise<SourceOfTruthDTO> {
+  await dbConnect();
+  const doc = await SourceOfTruthModel.create(input);
+  return mapToSourceOfTruthDTO(doc);
+}
+
+export async function findSourceOfTruthById(id: string): Promise<SourceOfTruthDTO | undefined> {
+  if (!isValidObjectId(id)) return undefined;
+  await dbConnect();
+  const doc = await SourceOfTruthModel.findById(id).lean<ISourceOfTruth>();
+  if (!doc) return undefined;
+  return mapToSourceOfTruthDTO(doc);
+}
+
+export async function findSourceOfTruthByProjectId(
+    projectId: string
+): Promise<SourceOfTruthDTO | undefined> {
+  if (!isValidObjectId(projectId)) return undefined;
+  await dbConnect();
+  const doc = await SourceOfTruthModel.findOne({ projectId }).lean<ISourceOfTruth>();
+  if (!doc) return undefined;
+  return mapToSourceOfTruthDTO(doc);
+}
+
+export type UpdateResult =
+    | { updated: true; data: SourceOfTruthDTO }
+    | { updated: false; data: SourceOfTruthDTO }
+    | { updated: false; data: null };
+
+export async function updateSourceOfTruth(
+    id: string,
+    content: string
+): Promise<UpdateResult> {
+  if (!isValidObjectId(id)) return { updated: false, data: null };
+
+  await dbConnect();
+  const doc = await SourceOfTruthModel.findById(id);
+  if (!doc) return { updated: false, data: null };
+
+  if (doc.content === content) {
+    return { updated: false, data: mapToSourceOfTruthDTO(doc) };
+  }
+
+  try {
+    doc.snapshotVersion();
+    doc.content = content;
+    await doc.save();
+    return { updated: true, data: mapToSourceOfTruthDTO(doc) };
+  } catch (err) {
+    throw new Error(`Failed to update SourceOfTruth ${id}: ${(err as Error).message}`);
+  }
+}
