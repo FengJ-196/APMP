@@ -16,12 +16,14 @@ export async function GET(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    const files = await FileService.getFilesByProjectId(id);
+    // Single efficient query: excludes heavy binary fileData, keeps text content
+    const files = await FileService.getFilesMetaWithContent(id);
 
     const fileList = files.map(f => ({
       id: f.id,
       originalName: f.originalName,
       contentType: f.contentType,
+      content: f.content || '',
       createdAt: f.createdAt,
     }));
 
