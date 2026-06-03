@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Plus, FileText, ChevronRight, Loader2, BarChart3, Settings } from 'lucide-react';
 import { projectsApi } from '@/lib/api';
 
@@ -13,17 +14,29 @@ interface Project {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    projectsApi.getAll('645a1b2c3d4e5f6a7b8c9d0e')
+    const token = localStorage.getItem('accessToken');
+    const storedUserId = localStorage.getItem('userId');
+    
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    // Use the stored userId if available, otherwise fallback to mock
+    const userIdToUse = storedUserId || '645a1b2c3d4e5f6a7b8c9d0e';
+
+    projectsApi.getAll(userIdToUse)
       .then(data => {
         setProjects(Array.isArray(data) ? data as any : []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [router]);
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-bg-base relative overflow-hidden pt-12">
@@ -31,7 +44,7 @@ export default function Home() {
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-accent-glow blur-[120px] rounded-full opacity-20 -translate-y-1/2 translate-x-1/4 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-accent-glow blur-[100px] rounded-full opacity-10 translate-y-1/4 -translate-x-1/4 pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto px-6 relative z-10">
+      <div className="w-full px-6 md:px-10 lg:px-16 relative z-10">
         <header className="mb-12 animate-fade-in-up">
           <h1 className="text-4xl font-bold tracking-tight text-text-primary mb-4">
             Dashboard
