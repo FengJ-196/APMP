@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { createUser, findUserByEmail } from '@/lib/repositories';
+import { createUser, findUserByEmail } from '../models/User';
 import type { UserDTO } from '@/dtos';
 
 export interface TokenPayload {

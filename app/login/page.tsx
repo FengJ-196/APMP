@@ -49,9 +49,11 @@ export default function LoginPage() {
     try {
       const data = await userApi.login({ email, password });
 
-      // Store tokens
+      // Store tokens and user identity
       localStorage.setItem('accessToken', data.tokens.accessToken);
       localStorage.setItem('refreshToken', data.tokens.refreshToken);
+      localStorage.setItem('userId', data.user.id);
+      localStorage.setItem('userEmail', data.user.email);
       setSuccess(true);
 
       // Redirect after brief success animation

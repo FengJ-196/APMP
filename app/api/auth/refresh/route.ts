@@ -5,12 +5,7 @@
  * of access + refresh tokens (token rotation pattern).
  */
 import { NextResponse } from 'next/server';
-import {
-  verifyRefreshToken,
-  generateAccessToken,
-  generateRefreshToken,
-} from '@/lib/auth/jwt';
-import type { AuthError } from '@/lib/auth/types';
+import { UserService } from '@/lib/services/UserService';
 
 export async function POST(request: Request) {
   try {
@@ -20,26 +15,26 @@ export async function POST(request: Request) {
     // --- Validation ---
     if (!refreshToken || typeof refreshToken !== 'string') {
       return NextResponse.json(
-        { error: 'Refresh token is required' } satisfies AuthError,
+        { error: 'Refresh token is required' },
         { status: 400 }
       );
     }
 
     // --- Verify the refresh token ---
-    const payload = verifyRefreshToken(refreshToken);
+    const payload = UserService.verifyRefreshToken(refreshToken);
     if (!payload) {
       return NextResponse.json(
-        { error: 'Invalid or expired refresh token' } satisfies AuthError,
+        { error: 'Invalid or expired refresh token' },
         { status: 401 }
       );
     }
 
     // --- Generate new token pair (rotation) ---
-    const newAccessToken = generateAccessToken({
+    const newAccessToken = UserService.generateAccessToken({
       userId: payload.userId,
       email: payload.email,
     });
-    const newRefreshToken = generateRefreshToken({
+    const newRefreshToken = UserService.generateRefreshToken({
       userId: payload.userId,
       email: payload.email,
     });
@@ -53,7 +48,7 @@ export async function POST(request: Request) {
     );
   } catch {
     return NextResponse.json(
-      { error: 'Invalid request body' } satisfies AuthError,
+      { error: 'Invalid request body' },
       { status: 400 }
     );
   }
