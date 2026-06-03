@@ -22,7 +22,7 @@ export interface ISourceOfTruth extends Document {
 const VersionSnapshotSchema = new Schema<IVersionSnapshot>(
     {
         versionNumber: { type: Number, required: true },
-        content: { type: String, required: true },
+        content: { type: String, required: false, default: '' },
         savedAt: { type: Date, default: Date.now },
     },
     { _id: false }
@@ -45,12 +45,17 @@ const SourceOfTruthSchema = new Schema<ISourceOfTruth>(
 SourceOfTruthSchema.methods.snapshotVersion = function (): void {
     this.versionHistory.push({
         versionNumber: this.versionNumber,
-        content: this.content,
+        content: this.content || '',
         savedAt: new Date(),
     });
 
     this.versionNumber += 1;
 };
+
+// Force model refresh in development to avoid schema caching issues
+if (process.env.NODE_ENV === 'development' && mongoose.models.SourceOfTruth) {
+  delete mongoose.models.SourceOfTruth;
+}
 
 const SourceOfTruthModel = mongoose.models.SourceOfTruth || mongoose.model<ISourceOfTruth>('SourceOfTruth', SourceOfTruthSchema);
 export default SourceOfTruthModel;
@@ -68,7 +73,7 @@ export function mapToSourceOfTruthDTO(doc: ISourceOfTruth): SourceOfTruthDTO {
     versionNumber: doc.versionNumber,
     versionHistory: (doc.versionHistory ?? []).map((v: IVersionSnapshot) => ({
       versionNumber: v.versionNumber,
-      content: v.content,
+      content: v.content, // might be undefined if projected out
       savedAt: v.savedAt,
     })),
     createdAt: doc.createdAt,
@@ -97,11 +102,18 @@ export async function findSourceOfTruthById(id: string): Promise<SourceOfTruthDT
 }
 
 export async function findSourceOfTruthByProjectId(
-    projectId: string
+    projectId: string,
+    includeHistoryContent: boolean = true
 ): Promise<SourceOfTruthDTO | undefined> {
   if (!isValidObjectId(projectId)) return undefined;
   await dbConnect();
-  const doc = await SourceOfTruthModel.findOne({ projectId }).lean<ISourceOfTruth>();
+  
+  const query = SourceOfTruthModel.findOne({ projectId });
+  if (!includeHistoryContent) {
+    query.select({ 'versionHistory.content': 0 });
+  }
+  
+  const doc = await query.lean<ISourceOfTruth>();
   if (!doc) return undefined;
   return mapToSourceOfTruthDTO(doc);
 }

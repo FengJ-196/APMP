@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const VersionSnapshotSchema = z.object({
   versionNumber: z.number(),
-  content: z.string(),
+  content: z.string().optional(),
   savedAt: z.date(),
 });
 
