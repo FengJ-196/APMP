@@ -7,8 +7,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
 import { POST as refreshPOST } from '@/app/api/auth/refresh/route';
-import { clearUsers } from '@/lib/auth/users';
-import { verifyAccessToken } from '@/lib/auth/jwt';
+import { clearUsers } from '@/lib/models/User';
+import { UserService } from '@/lib/services/UserService';
+const { verifyAccessToken } = UserService;
 
 function createRegisterRequest(body: Record<string, unknown>): Request {
   return new Request('http://localhost:3000/api/auth/register', {
@@ -30,7 +31,7 @@ describe('POST /api/auth/refresh', () => {
   let validRefreshToken: string;
 
   beforeEach(async () => {
-    clearUsers();
+    await clearUsers();
     // Seed a user and capture their refresh token
     const res = await registerPOST(
       createRegisterRequest({

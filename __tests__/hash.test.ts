@@ -5,7 +5,8 @@
  * These tests are written BEFORE implementation.
  */
 import { describe, it, expect } from 'vitest';
-import { hashPassword, verifyPassword } from '@/lib/auth/hash';
+import { UserService } from '@/lib/services/UserService';
+const { hashPassword, verifyPassword } = UserService;
 
 describe('Password Hashing', () => {
   describe('hashPassword', () => {

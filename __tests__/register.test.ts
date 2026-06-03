@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import { POST } from '@/app/api/auth/register/route';
-import { clearUsers, findUserByEmail } from '@/lib/auth/users';
+import { clearUsers, findUserByEmail } from '@/lib/models/User';
 
 function createRequest(body: Record<string, unknown>): Request {
   return new Request('http://localhost:3000/api/auth/register', {

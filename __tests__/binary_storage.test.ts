@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { uploadFile, clearFiles, findFilesByProjectId } from '../lib/models/files';
+import { uploadFile, clearFiles, findFilesByProjectId } from '../lib/models/File';
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
@@ -44,14 +44,14 @@ describe('Binary Storage Verification', () => {
       
       // Upload file
       const uploaded = await uploadFile({
-        project_id: mockProjectId,
-        user_id: mockUserId,
-        original_name: fileSpec.name,
+        projectId: mockProjectId,
+        userId: mockUserId,
+        originalName: fileSpec.name,
         contentType: fileSpec.contentType as any,
         fileData: fileBuffer
       });
 
-      expect(uploaded.original_name).toBe(fileSpec.name);
+      expect(uploaded.originalName).toBe(fileSpec.name);
       expect(uploaded.contentType).toBe(fileSpec.contentType);
       expect(uploaded.fileData).toBeDefined();
       

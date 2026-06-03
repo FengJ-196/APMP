@@ -4,6 +4,8 @@ import Project from './Project';
 import SourceOfTruth from './SourceOfTruth';
 import User from './User';
 import WBSItem from './WBSItem';
+import WBSConfig from './WBSConfig';
+import Conflict from './Conflict';
 import { StoryPoint, ExternalSync } from './Estimation';
 
 export {
@@ -13,6 +15,8 @@ export {
   SourceOfTruth,
   User,
   WBSItem,
+  WBSConfig,
+  Conflict,
   StoryPoint,
   ExternalSync
 };

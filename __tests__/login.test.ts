@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
 import { POST as registerPOST } from '@/app/api/auth/register/route';
 import { POST as loginPOST } from '@/app/api/auth/login/route';
-import { clearUsers } from '@/lib/auth/users';
+import { clearUsers } from '@/lib/models/User';
 
 function createRegisterRequest(body: Record<string, unknown>): Request {
   return new Request('http://localhost:3000/api/auth/register', {

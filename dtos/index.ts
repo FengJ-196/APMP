@@ -4,4 +4,6 @@ export * from './FileDTO';
 export * from './IssueDTO';
 export * from './SourceOfTruthDTO';
 export * from './WBSItemDTO';
+export * from './AIDTO';
 export * from './EstimationDTO';
+export * from './WBSConfigDTO';

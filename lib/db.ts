@@ -1,6 +1,12 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/apmp';
+let MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/apmp';
+
+if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || process.env.VITEST) {
+  MONGODB_URI = MONGODB_URI.endsWith('_test') || MONGODB_URI.endsWith('-test')
+    ? MONGODB_URI
+    : `${MONGODB_URI}_test`;
+}
 
 if (!MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
@@ -18,7 +24,12 @@ if (!cached) {
 }
 
 async function dbConnect() {
-  if (cached.conn) {
+  if (mongoose.connection.readyState === 0) {
+    cached.conn = null;
+    cached.promise = null;
+  }
+
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return cached.conn;
   }
 

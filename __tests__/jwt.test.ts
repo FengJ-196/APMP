@@ -5,13 +5,15 @@
  * These tests are written BEFORE implementation.
  */
 import { describe, it, expect } from 'vitest';
-import {
+import { UserService } from '@/lib/services/UserService';
+import type { TokenPayload } from '@/lib/services/UserService';
+
+const {
   generateAccessToken,
   generateRefreshToken,
   verifyAccessToken,
   verifyRefreshToken,
-} from '@/lib/auth/jwt';
-import type { TokenPayload } from '@/lib/auth/types';
+} = UserService;
 
 const mockPayload: TokenPayload = {
   userId: 'user-123-abc',

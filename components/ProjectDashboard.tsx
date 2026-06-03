@@ -1,13 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Upload, FileText, Image as ImageIcon, Trash2, ExternalLink, Plus, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react';
-import { projectsApi, filesApi } from '@/lib/api';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Upload, FileText, Image as ImageIcon, Trash2, ExternalLink, Plus, Loader2, CheckCircle2, AlertCircle, X, Copy, Code } from 'lucide-react';
+import { projectsApi, filesApi, sourceOfTruthApi } from '@/lib/api';
+import SourceOfTruthPanel from './SourceOfTruthPanel';
+import WBSPanel from './WBSPanel';
 
 interface FileMetadata {
   id: string;
   originalName: string;
   contentType: string;
+  content?: string;
   createdAt: string;
 }
 
@@ -19,16 +23,26 @@ interface Project {
 }
 
 export default function ProjectDashboard({ projectId }: { projectId: string }) {
+  const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<FileMetadata | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isAppendingSoT, setIsAppendingSoT] = useState(false);
+  const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
+  const [extractingMermaidFileId, setExtractingMermaidFileId] = useState<string | null>(null);
 
-  // Mock userId - in a real app, this would come from an auth session
-  const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
+    const storedUserId = localStorage.getItem('userId');
+    if (!storedUserId) {
+      // For demo purposes we can fallback, but in real flow we should redirect
+      setUserId('645a1b2c3d4e5f6a7b8c9d0e');
+    } else {
+      setUserId(storedUserId);
+    }
     fetchProject();
   }, [projectId]);
 
@@ -45,22 +59,113 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !userId) return;
 
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('projectId', projectId);
-    formData.append('userId', mockUserId);
+    formData.append('userId', userId);
 
     try {
-      await filesApi.upload(projectId, mockUserId, file);
+      await filesApi.upload(projectId, userId, file);
 
       await fetchProject(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleExtractPdf = async (fileId: string) => {
+    setIsExtracting(true);
+    try {
+      await filesApi.extractPdf(fileId);
+      await fetchProject(); // Refresh to show new extracted files
+      alert('Extraction complete! New files have been added to the project.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to extract PDF');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+
+
+  const handleAppendToSoT = async (fileId: string) => {
+    setIsAppendingSoT(true);
+    try {
+      // Use pre-loaded content if available, otherwise fetch
+      let textToAppend = '';
+      const file = project?.files.find(f => f.id === fileId);
+
+      if (file?.content) {
+        textToAppend = file.content;
+      } else {
+        const fileData = await filesApi.getById(fileId);
+        textToAppend = fileData.content || '';
+      }
+
+      let currentSot;
+      try {
+        currentSot = await sourceOfTruthApi.getByProjectId(projectId);
+      } catch (err: any) {
+        if (!err.message?.includes('404')) {
+          throw err;
+        }
+      }
+
+      if (currentSot) {
+        await sourceOfTruthApi.update(projectId, currentSot.content + '\n\n' + textToAppend);
+      } else {
+        await sourceOfTruthApi.create(projectId, textToAppend);
+      }
+      alert('Appended to Source of Truth successfully! Check the Source of Truth panel below.');
+    } catch (err: any) {
+      alert(err.message || 'Failed to append to Source of Truth');
+    } finally {
+      setIsAppendingSoT(false);
+    }
+  };
+
+  const handleDeleteFile = async (fileId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent opening the side panel
+
+    if (!confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await filesApi.delete(fileId);
+      await fetchProject(); // Refresh the list
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete file');
+    }
+  };
+
+  const handleExtractMermaid = async (fileId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExtractingMermaidFileId(fileId);
+    try {
+      const response = await fetch(`/api/files/${fileId}/extract-mermaid`);
+      if (!response.ok) throw new Error('Failed to extract Mermaid code');
+
+      // Consume the full stream to ensure the backend finishes saving
+      const reader = response.body?.getReader();
+      if (reader) {
+        while (true) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      }
+
+      // Refresh the project to pick up the newly saved content
+      await fetchProject();
+    } catch (err: any) {
+      alert(err.message || 'Failed to extract Mermaid code');
+    } finally {
+      setExtractingMermaidFileId(null);
     }
   };
 
@@ -74,7 +179,7 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-12 animate-fade-in-up">
+    <div className="w-full px-6 md:px-10 lg:px-16 py-12 animate-fade-in-up">
       <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-3 mb-2">
@@ -111,7 +216,7 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
         {project?.files.map((file, idx) => (
           <div
             key={file.id}
-            onClick={() => setSelectedFile(file)}
+            onClick={() => router.push(`/files/${file.id}`)}
             className="group relative bg-bg-surface border border-border-subtle rounded-2xl p-6 transition-all hover:bg-bg-elevated hover:border-accent-primary/30 hover:-translate-y-1 animate-fade-in-up cursor-pointer"
             style={{ animationDelay: `${idx * 0.1}s` }}
           >
@@ -123,16 +228,61 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
                   <FileText className="w-6 h-6 text-accent-primary" />
                 )}
               </div>
-              <a
-                href={`/api/files/${file.id}`}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-text-primary hover:bg-bg-overlay transition-all"
-                title="Open in new tab"
-              >
-                <ExternalLink className="w-4 h-4" />
-              </a>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/files/${file.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-text-primary hover:bg-bg-overlay transition-all"
+                  title="Open in new tab"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                <button
+                  onClick={(e) => handleDeleteFile(file.id, e)}
+                  className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-status-error hover:bg-status-error-glow transition-all"
+                  title="Delete file"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                {file.contentType.includes('image') && file.content && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(file.content || '');
+                      setCopiedFileId(file.id);
+                      setTimeout(() => setCopiedFileId(null), 2000);
+                    }}
+                    className={`p-2 rounded-lg transition-all ${
+                      copiedFileId === file.id
+                        ? 'bg-status-success-glow text-status-success'
+                        : 'bg-bg-elevated text-text-tertiary hover:text-accent-primary hover:bg-accent-subtle'
+                    }`}
+                    title="Copy extracted content"
+                  >
+                    {copiedFileId === file.id ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+                {file.contentType.includes('image') && !file.content && (
+                  <button
+                    onClick={(e) => handleExtractMermaid(file.id, e)}
+                    disabled={extractingMermaidFileId === file.id}
+                    className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-accent-primary hover:bg-accent-subtle transition-all disabled:opacity-50"
+                    title="Convert diagram to Mermaid code"
+                  >
+                    {extractingMermaidFileId === file.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
+                    ) : (
+                      <Code className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
 
             <h3 className="text-lg font-bold text-text-primary mb-1 truncate" title={file.originalName}>
@@ -151,10 +301,10 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-bg-surface/50">
-                   <div className="text-[10px] font-mono text-text-tertiary uppercase tracking-tighter text-center px-4 opacity-40">
-                      Binary Data Stream<br/>
-                      {file.id.substring(0, 12)}...
-                   </div>
+                  <div className="text-[10px] font-mono text-text-tertiary uppercase tracking-tighter text-center px-4 opacity-40">
+                    Binary Data Stream<br />
+                    {file.id.substring(0, 12)}...
+                  </div>
                 </div>
               )}
             </div>
@@ -170,75 +320,12 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
         )}
       </section>
 
-      {/* Slide-out File Viewer Panel */}
-      {selectedFile && (
-        <>
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity" 
-            onClick={() => setSelectedFile(null)} 
-          />
-          <div className="fixed top-0 right-0 h-full w-full max-w-3xl bg-bg-surface border-l border-border-subtle shadow-2xl z-50 flex flex-col animate-slide-in-right">
-            <div className="flex items-center justify-between p-6 border-b border-border-subtle bg-bg-elevated">
-              <div>
-                <h2 className="text-xl font-bold text-text-primary">{selectedFile.originalName}</h2>
-                <p className="text-sm text-text-tertiary mt-1">
-                  {selectedFile.contentType} • {new Date(selectedFile.createdAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <a
-                  href={`/api/files/${selectedFile.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-2.5 rounded-xl bg-bg-base border border-border-subtle text-text-secondary hover:text-accent-primary hover:border-accent-primary/50 hover:bg-accent-subtle transition-all"
-                  title="Open in new tab"
-                >
-                  <ExternalLink className="w-5 h-5" />
-                </a>
-                <button
-                  onClick={() => setSelectedFile(null)}
-                  className="p-2.5 rounded-xl bg-bg-base border border-border-subtle text-text-secondary hover:text-status-error hover:border-status-error/50 hover:bg-status-error-glow transition-all"
-                  title="Close viewer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-hidden bg-bg-base relative">
-              {selectedFile.contentType.includes('image') ? (
-                <div className="absolute inset-0 flex items-center justify-center p-8 overflow-auto">
-                  <img 
-                    src={`/api/files/${selectedFile.id}`} 
-                    alt={selectedFile.originalName} 
-                    className="max-w-full max-h-full object-contain rounded-xl shadow-lg border border-border-subtle"
-                  />
-                </div>
-              ) : selectedFile.contentType === 'application/pdf' || selectedFile.contentType === 'text/markdown' ? (
-                <iframe 
-                  src={`/api/files/${selectedFile.id}`} 
-                  className="w-full h-full border-none bg-white"
-                  title={selectedFile.originalName}
-                />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-text-tertiary p-6 text-center">
-                  <FileText className="w-16 h-16 mb-4 opacity-50" />
-                  <p className="text-lg text-text-secondary font-medium">Preview not available</p>
-                  <p className="mt-2">This file type cannot be previewed directly in the browser.</p>
-                  <a 
-                    href={`/api/files/${selectedFile.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-6 auth-btn-primary px-6 py-2 rounded-lg"
-                  >
-                    Download File
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      {/* Source of Truth Section */}
+      <SourceOfTruthPanel projectId={projectId} />
+
+      {/* Agile Work Breakdown Structure Tree */}
+      <WBSPanel projectId={projectId} />
+
     </div>
   );
 }

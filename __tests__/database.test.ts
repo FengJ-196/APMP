@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
-import User from '@/lib/models/schemas/User';
-import Project from '@/lib/models/schemas/Project';
-import File from '@/lib/models/schemas/File';
+import User from '../lib/models/User';
+import Project from '../lib/models/Project';
+import File from '../lib/models/File';
 
 describe('Database Integration', () => {
   beforeAll(async () => {
@@ -45,13 +45,13 @@ describe('Database Integration', () => {
     
     const project = await Project.create({
       title: 'Integration Project',
-      user_id: user._id,
+      userId: user._id,
     });
 
-    expect(project.user_id.toString()).toBe(user._id.toString());
+    expect(project.userId.toString()).toBe(user._id.toString());
     
-    const found = await Project.findById(project._id).populate('user_id');
-    expect(found.user_id.email).toBe(user.email);
+    const found = await Project.findById(project._id).populate('userId');
+    expect((found.userId as any).email).toBe(user.email);
   });
 
   it('should cleanup test data', async () => {

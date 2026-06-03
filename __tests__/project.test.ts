@@ -11,8 +11,8 @@ import {
   findProjectById,
   findProjectsByUserId,
   clearProjects,
-} from '@/lib/models/projects';
-import type { CreateProjectInput } from '@/lib/models/types';
+} from '../lib/models/Project';
+import type { CreateProjectInputDTO as CreateProjectInput } from '@/dtos';
 
 describe('Project Model (MongoDB)', () => {
   beforeAll(async () => {
@@ -31,7 +31,7 @@ describe('Project Model (MongoDB)', () => {
     it('should create a project with all required attributes', async () => {
       const input: CreateProjectInput = {
         title: 'APMP Platform',
-        user_id: new mongoose.Types.ObjectId().toString(),
+        userId: new mongoose.Types.ObjectId().toString(),
       };
 
       const project = await createProject(input);
@@ -45,7 +45,7 @@ describe('Project Model (MongoDB)', () => {
     it('should generate a 24-character hex id', async () => {
       const project = await createProject({
         title: 'Test Project',
-        user_id: new mongoose.Types.ObjectId().toString(),
+        userId: new mongoose.Types.ObjectId().toString(),
       });
 
       expect(project.id).toMatch(/^[a-f0-9]{24}$/);
@@ -57,7 +57,7 @@ describe('Project Model (MongoDB)', () => {
       const userId = new mongoose.Types.ObjectId().toString();
       const created = await createProject({
         title: 'Findable Project',
-        user_id: userId,
+        userId: userId,
       });
 
       const found = await findProjectById(created.id);
@@ -78,9 +78,9 @@ describe('Project Model (MongoDB)', () => {
       const u1 = new mongoose.Types.ObjectId().toString();
       const u2 = new mongoose.Types.ObjectId().toString();
 
-      await createProject({ title: 'User1 - A', user_id: u1 });
-      await createProject({ title: 'User1 - B', user_id: u1 });
-      await createProject({ title: 'User2 - A', user_id: u2 });
+      await createProject({ title: 'User1 - A', userId: u1 });
+      await createProject({ title: 'User1 - B', userId: u1 });
+      await createProject({ title: 'User2 - A', userId: u2 });
 
       const user1Projects = await findProjectsByUserId(u1);
       const user2Projects = await findProjectsByUserId(u2);
