@@ -1,5 +1,5 @@
 import path from 'path';
-import { uploadFile, findFilesByProjectId, findFilesMetaWithContent, findFileById, deleteFile, updateFileContent, updateFileTextContent } from '../models/File';
+import { uploadFile, findFilesByProjectId, findFilesMetaWithContent, findFileById, deleteFile, updateFileContent, updateFileTextContent, renameFile } from '../models/File';
 import { UploadFileInputSchema, type FileDTO, MIME_TYPE_MAP, type AllowedMimeType } from '@/dtos';
 
 export interface UploadParams {
@@ -91,5 +91,34 @@ export class FileService {
   static async updateFileTextContent(fileId: string, content: string): Promise<FileDTO | undefined> {
     if (!fileId) throw new Error('File ID is required');
     return updateFileTextContent(fileId, content);
+  }
+
+  /**
+   * Renames the file, preserving its original extension.
+   */
+  static async renameFile(fileId: string, newName: string): Promise<FileDTO | undefined> {
+    if (!fileId) throw new Error('File ID is required');
+    if (!newName || newName.trim() === '') throw new Error('New name cannot be empty');
+
+    // Retrieve original file to get its extension
+    const file = await this.getFileById(fileId);
+    if (!file) return undefined;
+
+    const originalExt = path.extname(file.originalName).toLowerCase(); // e.g. '.pdf'
+    
+    // Clean up new name (strip trailing/leading whitespace and any extension)
+    let cleanNewName = newName.trim();
+    const inputExt = path.extname(cleanNewName).toLowerCase();
+    
+    if (inputExt) {
+      // If user typed an extension, strip it off
+      cleanNewName = cleanNewName.slice(0, -inputExt.length);
+    }
+    
+    // Combine with original extension
+    const targetName = cleanNewName + originalExt;
+
+    // Update originalName in database
+    return renameFile(fileId, targetName);
   }
 }

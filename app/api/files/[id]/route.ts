@@ -91,3 +91,29 @@ export async function DELETE(
     return NextResponse.json({ error: 'Failed to delete file' }, { status: 500 });
   }
 }
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const { name } = await request.json();
+
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return NextResponse.json({ error: 'New name is required' }, { status: 400 });
+    }
+
+    const updatedFile = await FileService.renameFile(id, name.trim());
+    
+    if (!updatedFile) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 });
+    }
+
+    return NextResponse.json(updatedFile);
+  } catch (error: any) {
+    console.error('File rename error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to rename file' }, { status: 500 });
+  }
+}
+

@@ -18,7 +18,8 @@ import {
   Code,
   Copy,
   X,
-  Sparkles
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { filesApi, sourceOfTruthApi } from '@/lib/api';
 import Navbar from '@/components/Navbar';
@@ -42,6 +43,10 @@ export default function FilePreviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [isSavingRename, setIsSavingRename] = useState(false);
+  
   const [isExtracting, setIsExtracting] = useState(false);
   const [isEditingMarkdown, setIsEditingMarkdown] = useState(false);
   const [markdownContent, setMarkdownContent] = useState('');
@@ -63,6 +68,28 @@ export default function FilePreviewPage() {
       fetchFile();
     }
   }, [fileId]);
+
+  const getBaseName = (filename: string) => {
+    const lastDotIndex = filename.lastIndexOf('.');
+    if (lastDotIndex === -1) return filename;
+    return filename.substring(0, lastDotIndex);
+  };
+
+  const handleSaveRename = async () => {
+    if (!file || !renameValue.trim()) return;
+    setIsSavingRename(true);
+    setError(null);
+    try {
+      const updated = await filesApi.rename(file.id, renameValue.trim());
+      setFile(prev => prev ? { ...prev, originalName: updated.originalName } : null);
+      setIsRenaming(false);
+      showSuccess('File renamed successfully!');
+    } catch (err: any) {
+      setError(err.message || 'Failed to rename file');
+    } finally {
+      setIsSavingRename(false);
+    }
+  };
 
   const fetchFile = async () => {
     try {
@@ -305,10 +332,53 @@ export default function FilePreviewPage() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
-              <h1 className="text-xl font-bold text-text-primary flex items-center gap-2 truncate max-w-md">
-                {isImage ? <ImageIcon className="w-5 h-5 text-accent-primary" /> : <FileText className="w-5 h-5 text-accent-primary" />}
-                {file.originalName}
-              </h1>
+              {isRenaming ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveRename();
+                      if (e.key === 'Escape') setIsRenaming(false);
+                    }}
+                    className="px-3 py-1 bg-bg-base border border-accent-primary rounded-lg text-text-primary text-lg font-bold focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                    autoFocus
+                    disabled={isSavingRename}
+                  />
+                  <button
+                    onClick={handleSaveRename}
+                    disabled={isSavingRename}
+                    className="p-1 hover:bg-bg-elevated rounded text-status-success disabled:opacity-50 cursor-pointer"
+                    title="Save name"
+                  >
+                    {isSavingRename ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => setIsRenaming(false)}
+                    disabled={isSavingRename}
+                    className="p-1 hover:bg-bg-elevated rounded text-text-tertiary hover:text-text-primary disabled:opacity-50 cursor-pointer"
+                    title="Cancel"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <h1 className="text-xl font-bold text-text-primary flex items-center gap-2 truncate max-w-md group">
+                  {isImage ? <ImageIcon className="w-5 h-5 text-accent-primary" /> : <FileText className="w-5 h-5 text-accent-primary" />}
+                  <span className="truncate">{getBaseName(file.originalName)}</span>
+                  <button
+                    onClick={() => {
+                      setRenameValue(getBaseName(file.originalName));
+                      setIsRenaming(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-bg-elevated rounded text-text-tertiary hover:text-text-primary transition-all cursor-pointer"
+                    title="Rename file"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                </h1>
+              )}
               <p className="text-xs text-text-tertiary mt-0.5">
                 {file.contentType} • {new Date(file.createdAt).toLocaleString()}
               </p>
@@ -506,7 +576,7 @@ export default function FilePreviewPage() {
                 <div className="flex-1 rounded-2xl bg-bg-surface border border-border-subtle shadow-xl overflow-hidden flex flex-col">
                   <div className="px-5 py-3 bg-bg-elevated border-b border-border-subtle flex items-center justify-between">
                     <span className="text-xs font-bold text-text-secondary flex items-center gap-2">
-                      📄 {file.originalName}
+                      📄 {getBaseName(file.originalName)}
                     </span>
                     <span className="text-[10px] uppercase font-bold tracking-widest text-text-tertiary">
                       Read Only

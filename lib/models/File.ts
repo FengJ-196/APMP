@@ -137,3 +137,11 @@ export async function updateFileTextContent(id: string, content: string): Promis
   return mapToFileType(file);
 }
 
+export async function renameFile(id: string, newName: string): Promise<FileDTO | undefined> {
+  await dbConnect();
+  const file = await FileModel.findByIdAndUpdate(id, { originalName: newName }, { new: true }).lean<IFile>();
+  if (!file) return undefined;
+  return mapToFileType(file);
+}
+
+

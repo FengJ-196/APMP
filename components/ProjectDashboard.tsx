@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Upload, FileText, Image as ImageIcon, Trash2, ExternalLink, Plus, Loader2, CheckCircle2, AlertCircle, X, Copy, Code } from 'lucide-react';
+import { Upload, FileText, Image as ImageIcon, Trash2, ExternalLink, Plus, Loader2, CheckCircle2, AlertCircle, X, Copy, Code, Edit3 } from 'lucide-react';
 import { projectsApi, filesApi, sourceOfTruthApi } from '@/lib/api';
 import SourceOfTruthPanel from './SourceOfTruthPanel';
 import WBSPanel from './WBSPanel';
@@ -34,6 +34,9 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
   const [extractingMermaidFileId, setExtractingMermaidFileId] = useState<string | null>(null);
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isSavingRename, setIsSavingRename] = useState(false);
 
   useEffect(() => {
     const storedUserId = localStorage.getItem('userId');
@@ -54,6 +57,26 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
       setError('Could not load project details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getBaseName = (filename: string) => {
+    const lastDotIndex = filename.lastIndexOf('.');
+    if (lastDotIndex === -1) return filename;
+    return filename.substring(0, lastDotIndex);
+  };
+
+  const handleSaveRename = async (fileId: string) => {
+    if (!renameValue.trim()) return;
+    setIsSavingRename(true);
+    try {
+      await filesApi.rename(fileId, renameValue.trim());
+      setRenamingFileId(null);
+      await fetchProject(); // Refresh the list
+    } catch (err: any) {
+      alert(err.message || 'Failed to rename file');
+    } finally {
+      setIsSavingRename(false);
     }
   };
 
@@ -240,8 +263,19 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
                   <ExternalLink className="w-4 h-4" />
                 </a>
                 <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenameValue(getBaseName(file.originalName));
+                    setRenamingFileId(file.id);
+                  }}
+                  className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-accent-primary hover:bg-accent-subtle transition-all cursor-pointer"
+                  title="Rename file"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button
                   onClick={(e) => handleDeleteFile(file.id, e)}
-                  className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-status-error hover:bg-status-error-glow transition-all"
+                  className="p-2 rounded-lg bg-bg-elevated text-text-tertiary hover:text-status-error hover:bg-status-error-glow transition-all cursor-pointer"
                   title="Delete file"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -285,9 +319,47 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
               </div>
             </div>
 
-            <h3 className="text-lg font-bold text-text-primary mb-1 truncate" title={file.originalName}>
-              {file.originalName}
-            </h3>
+            {renamingFileId === file.id ? (
+              <div className="flex items-center gap-2 mb-1" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      await handleSaveRename(file.id);
+                    } else if (e.key === 'Escape') {
+                      setRenamingFileId(null);
+                    }
+                  }}
+                  className="w-full px-2 py-1 bg-bg-base border border-accent-primary rounded-lg text-text-primary text-sm font-bold focus:outline-none focus:ring-1 focus:ring-accent-primary"
+                  autoFocus
+                  disabled={isSavingRename}
+                />
+                <button
+                  onClick={() => handleSaveRename(file.id)}
+                  disabled={isSavingRename}
+                  className="p-1 text-status-success hover:bg-bg-elevated rounded transition-colors cursor-pointer"
+                >
+                  {isSavingRename ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setRenamingFileId(null)}
+                  disabled={isSavingRename}
+                  className="p-1 text-text-tertiary hover:bg-bg-elevated rounded transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <h3 className="text-lg font-bold text-text-primary mb-1 truncate" title={getBaseName(file.originalName)}>
+                {getBaseName(file.originalName)}
+              </h3>
+            )}
             <p className="text-xs text-text-tertiary mb-4">
               {new Date(file.createdAt).toLocaleDateString()} • {file.contentType.split('/')[1].toUpperCase()}
             </p>

@@ -130,4 +130,47 @@ describe('FileService & Upload Integration', () => {
       expect(files[0].content).toBeUndefined();
     });
   });
+
+  describe('renameFile', () => {
+    it('should successfully rename a file and preserve its original extension', async () => {
+      const uploaded = await FileService.uploadFile({
+        projectId,
+        userId: mockUserId,
+        filename: 'original-name.md',
+        data: Buffer.from('# content'),
+        content: '# content',
+      });
+
+      // Case 1: Renaming without extension -> should append original extension
+      const renamed1 = await FileService.renameFile(uploaded.id, 'new-name');
+      expect(renamed1).toBeDefined();
+      expect(renamed1?.originalName).toBe('new-name.md');
+      expect(renamed1?.contentType).toBe('text/markdown');
+
+      // Case 2: Renaming with mismatching extension -> should strip and append original extension
+      const renamed2 = await FileService.renameFile(uploaded.id, 'another-name.pdf');
+      expect(renamed2).toBeDefined();
+      expect(renamed2?.originalName).toBe('another-name.md');
+      expect(renamed2?.contentType).toBe('text/markdown');
+
+      // Case 3: Renaming with matching extension -> should just set it
+      const renamed3 = await FileService.renameFile(uploaded.id, 'final-name.md');
+      expect(renamed3).toBeDefined();
+      expect(renamed3?.originalName).toBe('final-name.md');
+      expect(renamed3?.contentType).toBe('text/markdown');
+    });
+
+    it('should throw error for invalid arguments', async () => {
+      const uploaded = await FileService.uploadFile({
+        projectId,
+        userId: mockUserId,
+        filename: 'somefile.pdf',
+        data: Buffer.from('%PDF'),
+      });
+
+      await expect(FileService.renameFile(uploaded.id, '')).rejects.toThrow(/New name cannot be empty/);
+      await expect(FileService.renameFile(uploaded.id, '   ')).rejects.toThrow(/New name cannot be empty/);
+    });
+  });
 });
+

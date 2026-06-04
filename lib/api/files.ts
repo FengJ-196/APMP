@@ -49,4 +49,14 @@ export const filesApi = {
       method: 'PUT',
       body: JSON.stringify({ content }),
     }),
+
+  /**
+   * Rename a file.
+   */
+  rename: (id: string, name: string) =>
+    fetchClient<FileDTO>(`/api/files/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
 };
+
