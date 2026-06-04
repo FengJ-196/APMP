@@ -293,6 +293,37 @@ export class GeminiProvider implements IAIServiceProvider {
     }
   }
 
+  async *generateWBSStream(sourceOfTruth: string, config: any): AsyncIterable<string> {
+    try {
+      const model = this.genAI.getGenerativeModel({ 
+        model: GEMINI_MODEL,
+        generationConfig: {
+          temperature: 0.2,
+        }
+      });
+
+      const prompt = buildWBSBreakdownPrompt(sourceOfTruth, config);
+      const result = await model.generateContentStream(prompt);
+
+      for await (const chunk of result.stream) {
+        yield chunk.text();
+      }
+    } catch (err) {
+      console.warn("generateWBSStream: Gemini error hit, falling back to mock", err);
+      yield "## Architectural Reasoning & Plan\nFalling back to default payment template...\n\n```json\n" + JSON.stringify([
+        {
+          title: "Secure Payment Epic",
+          description: "Implement billing and payment flows.",
+          type: "epic",
+          tempId: "epic-payment",
+          parentTempId: null,
+          acceptanceCriteria: [],
+          sourceRequirements: []
+        }
+      ], null, 2) + "\n```";
+    }
+  }
+
   async generateDeveloperSubtasks(task: any, config: any, sourceOfTruth: string): Promise<any[]> {
     try {
       const model = this.genAI.getGenerativeModel({ 

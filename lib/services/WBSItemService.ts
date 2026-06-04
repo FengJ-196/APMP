@@ -194,4 +194,96 @@ export class WBSItemService {
     // Return the complete newly saved WBS list
     return this.getWBSItemsByProjectId(projectId);
   }
+
+  /**
+   * Parses the JSON block out of the full LLM output (which contains markdown reasoning and code block),
+   * and saves the WBS hierarchy into the database.
+   */
+  static async parseAndSaveWBS(projectId: string, sourceOfTruthId: string, fullLLMOutput: string): Promise<WBSItemDTO[]> {
+    await dbConnect();
+
+    // 1. Extract JSON array block from LLM output (between ```json and ```)
+    let jsonContent = fullLLMOutput;
+    const jsonMatch = fullLLMOutput.match(/```json([\s\S]*?)```/);
+    if (jsonMatch) {
+      jsonContent = jsonMatch[1];
+    } else {
+      // Fallback: try finding brackets [ and ]
+      const bracketMatch = fullLLMOutput.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (bracketMatch) {
+        jsonContent = bracketMatch[0];
+      }
+    }
+
+    const generatedItems = JSON.parse(jsonContent.trim());
+    if (!Array.isArray(generatedItems) || generatedItems.length === 0) {
+      throw new Error('No valid WBS items found in AI response');
+    }
+
+    // 2. Clear existing WBS items for this project
+    await WBSItemModel.deleteMany({ projectId });
+
+    // 3. Map items and resolve hierarchical relationships (Epic -> Story -> Task)
+    const tempIdMap = new Map<string, mongoose.Types.ObjectId>();
+
+    // Phase 1: Create Epics
+    const epics = generatedItems.filter((item: any) => item.type === 'epic');
+    for (const epic of epics) {
+      const doc = await WBSItemModel.create({
+        projectId,
+        sourceOfTruthId,
+        title: epic.title,
+        description: epic.description || '',
+        type: 'epic',
+        status: 'ai_generated',
+        acceptanceCriteria: epic.acceptanceCriteria || [],
+        sourceRequirements: epic.sourceRequirements || [],
+        order: epics.indexOf(epic),
+        aiGenerated: true,
+      });
+      tempIdMap.set(epic.tempId, doc._id as mongoose.Types.ObjectId);
+    }
+
+    // Phase 2: Create Stories (which point to Epics)
+    const stories = generatedItems.filter((item: any) => item.type === 'story');
+    for (const story of stories) {
+      const parentId = story.parentTempId ? tempIdMap.get(story.parentTempId) : undefined;
+      const doc = await WBSItemModel.create({
+        projectId,
+        parentId,
+        sourceOfTruthId,
+        title: story.title,
+        description: story.description || '',
+        type: 'story',
+        status: 'ai_generated',
+        acceptanceCriteria: story.acceptanceCriteria || [],
+        sourceRequirements: story.sourceRequirements || [],
+        order: stories.indexOf(story),
+        aiGenerated: true,
+      });
+      tempIdMap.set(story.tempId, doc._id as mongoose.Types.ObjectId);
+    }
+
+    // Phase 3: Create Tasks (which point to Stories)
+    const tasks = generatedItems.filter((item: any) => item.type === 'task');
+    for (const task of tasks) {
+      const parentId = task.parentTempId ? tempIdMap.get(task.parentTempId) : undefined;
+      const doc = await WBSItemModel.create({
+        projectId,
+        parentId,
+        sourceOfTruthId,
+        title: task.title,
+        description: task.description || '',
+        type: 'task',
+        status: 'ai_generated',
+        acceptanceCriteria: task.acceptanceCriteria || [],
+        sourceRequirements: task.sourceRequirements || [],
+        order: tasks.indexOf(task),
+        aiGenerated: true,
+      });
+      tempIdMap.set(task.tempId, doc._id as mongoose.Types.ObjectId);
+    }
+
+    return this.getWBSItemsByProjectId(projectId);
+  }
 }

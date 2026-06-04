@@ -62,6 +62,11 @@ export interface IAIServiceProvider {
   generateWBS(sourceOfTruth: string, config: any): Promise<any[]>;
 
   /**
+   * Generates a WBS structure streaming reasoning and JSON chunks.
+   */
+  generateWBSStream(sourceOfTruth: string, config: any): AsyncIterable<string>;
+
+  /**
    * Decomposes a Level 3 Task into concrete Level 4 developer subtasks.
    */
   generateDeveloperSubtasks(task: any, config: any, sourceOfTruth: string): Promise<any[]>;

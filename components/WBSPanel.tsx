@@ -70,6 +70,7 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
   const [items, setItems] = useState<WBSItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -118,24 +119,31 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
     try {
       setGenerating(true);
       setError(null);
+      setStreamingText('');
       const res = await fetch(`/api/projects/${projectId}/wbs`, {
         method: 'POST',
       });
       if (!res.ok) {
-        const errText = await res.json();
-        throw new Error(errText.error || 'Failed to generate WBS.');
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to generate WBS.');
       }
-      const data = await res.json();
-      setItems(data);
-      
-      // Auto-expand all new nodes
-      const newExpanded: Record<string, boolean> = {};
-      data.forEach((item: WBSItem) => {
-        if (item.type === 'epic' || item.type === 'story') {
-          newExpanded[item.id] = true;
-        }
-      });
-      setExpandedIds(newExpanded);
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Response stream is unavailable');
+
+      const decoder = new TextDecoder();
+      let runningText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        runningText += chunk;
+        setStreamingText(runningText);
+      }
+
+      // Re-fetch items from database
+      await fetchWBS();
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Failed to decompose Source of Truth to WBS.');
@@ -355,7 +363,29 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
           </div>
         )}
 
-        {!loading && epics.length === 0 && (
+        {generating && (
+          <div className="flex flex-col items-center justify-center py-8 gap-4 text-center w-full bg-bg-surface border border-border-subtle rounded-xl p-6 mb-6">
+            <div className="relative w-16 h-16 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-accent-glow border-t-accent-primary animate-spin" />
+              <Sparkles className="w-6 h-6 text-accent-primary animate-pulse" />
+            </div>
+            <div>
+              <p className="text-text-primary font-bold animate-pulse">Running Agile WBS Decomposer...</p>
+              <p className="text-text-tertiary text-xs mt-1">Generating Epics, Stories, Tasks, and Criteria matching tech-stack constraints</p>
+            </div>
+            {streamingText && (
+              <div className="w-full max-w-3xl mt-4 text-left bg-bg-base/80 p-4 rounded-xl border border-border-subtle font-mono text-xs text-text-secondary h-64 overflow-y-auto shadow-inner animate-fade-in-up">
+                <div className="text-[10px] font-bold text-accent-primary uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-ping" />
+                  Live AI Reasoner stream
+                </div>
+                <pre className="whitespace-pre-wrap font-mono leading-relaxed">{streamingText}</pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!loading && !generating && epics.length === 0 && (
           <div className="text-center py-12 text-text-tertiary">
             <FileText className="w-12 h-12 text-text-tertiary/20 mx-auto mb-3" />
             <p className="font-semibold text-text-secondary">WBS Structure is empty</p>
@@ -364,7 +394,8 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
         )}
 
         {/* Epics rendering */}
-        <div className="space-y-6">
+        {!generating && (
+          <div className="space-y-6">
           {epics.map(epic => {
             const isEpicExpanded = expandedIds[epic.id];
             const epicStories = getStoriesForEpic(epic.id);
@@ -563,6 +594,7 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

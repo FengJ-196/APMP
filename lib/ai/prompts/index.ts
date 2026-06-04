@@ -120,10 +120,18 @@ You must tailor the generated tasks and acceptance criteria to the following tec
 ${sourceOfTruth}
 
 ---
-## OUTPUT FORMAT (JSON ARRAY ONLY):
-You must output a single JSON array containing objects matching the schema below. No conversational text, no prefix, and no markdown backticks.
+## OUTPUT FORMAT RULES:
+You must structure your response exactly as follows:
+1. First, write down your reasoning and plan under the heading "## Architectural Reasoning & Plan" in Markdown. List your main observations, tech stack decisions, sprint allocation plans, and step-by-step breakdown thoughts.
+2. Second, write the final WBS JSON array inside a standard \`\`\`json ... \`\`\` code block. Do NOT include any other text after the JSON code block.
 
-Example JSON output structure:
+Example output structure:
+## Architectural Reasoning & Plan
+1. **Requirements Analysis**: Analyzing user authentication and dashboard specs...
+2. **Tech Stack & Constraints**: Using Next.js, Node, MongoDB...
+3. **Sprint Strategy**: Epic Auth in sprint 1...
+
+\`\`\`json
 [
   {
     "tempId": "epic-auth",
@@ -167,8 +175,7 @@ Example JSON output structure:
     "sourceRequirements": ["REQ-1.1"]
   }
 ]
-
-CRITICAL: Return only the valid JSON array. Do not wrap the JSON output in "\`\`\`json" tags.`;
+\`\`\``;
 }
 
 /**

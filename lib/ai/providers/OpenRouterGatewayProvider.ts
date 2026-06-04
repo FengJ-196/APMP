@@ -473,6 +473,101 @@ export class OpenRouterGatewayProvider implements IAIServiceProvider {
     }
   }
 
+  async *generateWBSStream(sourceOfTruth: string, config: any): AsyncIterable<string> {
+    try {
+      const taskConfig = this.getTaskConfig(AITask.GENERATE_WBS);
+      const prompt = buildWBSBreakdownPrompt(sourceOfTruth, config);
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+          'HTTP-Referer': 'https://github.com/FengJ-196/APMP',
+          'X-Title': 'APMP',
+        },
+        body: JSON.stringify({
+          model: taskConfig.model,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+          temperature: taskConfig.temperature !== undefined ? taskConfig.temperature : 0.2,
+          stream: true,
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`OpenRouter HTTP error: ${response.status}`);
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      if (typeof (response.body as any)[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of response.body as any) {
+          buffer += decoder.decode(chunk, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine || cleanLine === 'data: [DONE]') continue;
+            if (cleanLine.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(cleanLine.substring(6));
+                const content = parsed.choices?.[0]?.delta?.content || '';
+                if (content) {
+                  yield content;
+                }
+              } catch (e) {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+      } else {
+        const reader = (response.body as any).getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine || cleanLine === 'data: [DONE]') continue;
+            if (cleanLine.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(cleanLine.substring(6));
+                const content = parsed.choices?.[0]?.delta?.content || '';
+                if (content) {
+                  yield content;
+                }
+              } catch (e) {
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("generateWBSStream: OpenRouter error hit, falling back to mock", err);
+      yield "## Architectural Reasoning & Plan\nFalling back to default payment template...\n\n```json\n" + JSON.stringify([
+        {
+          title: "Secure Payment Epic",
+          description: "Implement billing and payment flows.",
+          type: "epic",
+          tempId: "epic-payment",
+          parentTempId: null,
+          acceptanceCriteria: [],
+          sourceRequirements: []
+        }
+      ], null, 2) + "\n```";
+    }
+  }
+
   async generateDeveloperSubtasks(task: any, config: any, sourceOfTruth: string): Promise<any[]> {
     try {
       const prompt = buildDeveloperSubtaskBreakdownPrompt(task, config, sourceOfTruth);

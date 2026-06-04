@@ -110,6 +110,14 @@ export class AIService {
   }
 
   /**
+   * Generates a 4-level Work Breakdown Structure (WBS) streaming reasoning and JSON.
+   */
+  public generateWBSStream(sourceOfTruth: string, config: any): AsyncIterable<string> {
+    if (!this.provider) throw new Error('AI Provider not initialized');
+    return this.provider.generateWBSStream(sourceOfTruth, config);
+  }
+
+  /**
    * Decomposes a Level 3 Task into concrete Level 4 developer subtasks.
    */
   public async generateDeveloperSubtasks(task: any, config: any, sourceOfTruth: string): Promise<any[]> {
