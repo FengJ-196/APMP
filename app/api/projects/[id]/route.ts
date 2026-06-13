@@ -36,3 +36,21 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to fetch project details' }, { status: 500 });
   }
 }
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const project = await ProjectService.updateProject(id, body);
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+    return NextResponse.json(project);
+  } catch (error) {
+    console.error('Update project error:', error);
+    return NextResponse.json({ error: 'Failed to update project' }, { status: 500 });
+  }
+}

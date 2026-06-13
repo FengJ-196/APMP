@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { sourceOfTruthApi } from '@/lib/api';
 import type { SourceOfTruthDTO } from '@/dtos';
 import { Loader2, Save, FileText, Clock, History } from 'lucide-react';
-import ConflictPanel from './ConflictPanel';
 
 
 export default function SourceOfTruthPanel({ projectId }: { projectId: string }) {
@@ -170,15 +169,6 @@ export default function SourceOfTruthPanel({ projectId }: { projectId: string })
         )}
       </div>
 
-      {/* Conflict and Ambiguity Detection Panel */}
-      <ConflictPanel 
-        projectId={projectId} 
-        sourceOfTruthContent={content} 
-        onApplyFix={(fix) => {
-          setContent(prev => prev ? prev + '\n\n' + fix : fix);
-          alert('AI Resolution has been appended to the Source of Truth editor. Please review the changes and click "Save Changes" to commit.');
-        }} 
-      />
     </div>
   );
 }

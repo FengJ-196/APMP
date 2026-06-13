@@ -7,3 +7,4 @@ export * from './WBSItemDTO';
 export * from './AIDTO';
 export * from './EstimationDTO';
 export * from './WBSConfigDTO';
+export * from './UserIntegrationDTO';

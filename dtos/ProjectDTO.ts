@@ -8,6 +8,8 @@ export const ProjectSchema = z.object({
   title: z.string().trim().min(1, 'Title is required'),
   userId: z.string(),
   status: ProjectStatusSchema,
+  githubRepo: z.string().optional(),
+  jiraProjectKey: z.string().optional(),
   createdAt: z.date(),
 });
 export type ProjectDTO = z.infer<typeof ProjectSchema>;
@@ -16,5 +18,7 @@ export const CreateProjectInputSchema = z.object({
   title: z.string().trim().min(1, 'Title is required'),
   userId: z.string(),
   status: ProjectStatusSchema.optional(),
+  githubRepo: z.string().optional(),
+  jiraProjectKey: z.string().optional(),
 });
 export type CreateProjectInputDTO = z.infer<typeof CreateProjectInputSchema>;

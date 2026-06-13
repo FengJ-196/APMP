@@ -22,4 +22,13 @@ export const projectsApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  /**
+   * Update an existing project's fields.
+   */
+  update: (id: string, data: Partial<ProjectDTO>) => 
+    fetchClient<ProjectDTO>(`/api/projects/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 };

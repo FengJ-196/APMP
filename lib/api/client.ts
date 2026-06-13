@@ -16,10 +16,10 @@ export async function fetchClient<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
 
   // Auto-attach auth token if in the browser
@@ -51,6 +51,12 @@ export async function fetchClient<T>(
   }
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined' && !endpoint.includes('/api/auth/')) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('userId');
+      window.location.href = '/login';
+    }
     throw new ApiError(data?.error || data?.message || 'API request failed', response.status);
   }
 

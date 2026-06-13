@@ -1,13 +1,17 @@
-import ProjectDashboard from '@/components/ProjectDashboard';
-import Navbar from '@/components/Navbar';
+'use client';
 
-export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  
-  return (
-    <main className="min-h-screen bg-bg-base pt-24">
-      <Navbar />
-      <ProjectDashboard projectId={id} />
-    </main>
-  );
+import { useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+
+export default function ProjectPageRedirect() {
+  const router = useRouter();
+  const { id } = useParams() as { id: string };
+
+  useEffect(() => {
+    if (id) {
+      router.replace(`/projects/${id}/files`);
+    }
+  }, [id, router]);
+
+  return null;
 }

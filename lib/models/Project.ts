@@ -6,6 +6,8 @@ export interface IProject extends Document {
   title: string;
   userId: mongoose.Types.ObjectId;
   status: 'active' | 'archived' | 'completed';
+  githubRepo?: string;
+  jiraProjectKey?: string;
   createdAt: Date;
 }
 
@@ -25,17 +27,27 @@ const ProjectSchema = new Schema<IProject>({
     enum: ['active', 'archived', 'completed'],
     default: 'active',
   },
+  githubRepo: {
+    type: String,
+    trim: true,
+  },
+  jiraProjectKey: {
+    type: String,
+    trim: true,
+  },
 }, { timestamps: true });
 
 const ProjectModel = mongoose.models.Project || mongoose.model<IProject>('Project', ProjectSchema);
 export default ProjectModel;
 
-export function mapToProjectType(doc: IProject): ProjectDTO {
+export function mapToProjectType(doc: any): ProjectDTO {
   return {
     id: doc._id.toString(),
     title: doc.title,
     userId: doc.userId.toString(),
     status: doc.status,
+    githubRepo: doc.githubRepo,
+    jiraProjectKey: doc.jiraProjectKey,
     createdAt: doc.createdAt,
   };
 }
@@ -46,20 +58,29 @@ export async function createProject(input: CreateProjectInputDTO): Promise<Proje
     title: input.title,
     userId: input.userId,
     status: input.status ?? 'active',
+    githubRepo: input.githubRepo,
+    jiraProjectKey: input.jiraProjectKey,
   });
   return mapToProjectType(project);
 }
 
 export async function findProjectById(id: string): Promise<ProjectDTO | undefined> {
   await dbConnect();
-  const project = await ProjectModel.findById(id).lean<IProject>();
+  const project = await ProjectModel.findById(id).lean<any>();
+  if (!project) return undefined;
+  return mapToProjectType(project);
+}
+
+export async function updateProject(id: string, updates: Partial<IProject>): Promise<ProjectDTO | undefined> {
+  await dbConnect();
+  const project = await ProjectModel.findByIdAndUpdate(id, updates, { new: true });
   if (!project) return undefined;
   return mapToProjectType(project);
 }
 
 export async function findProjectsByUserId(userId: string): Promise<ProjectDTO[]> {
   await dbConnect();
-  const projects = await ProjectModel.find({ userId: userId }).lean<IProject[]>();
+  const projects = await ProjectModel.find({ userId: userId }).lean<any[]>();
   return projects.map(mapToProjectType);
 }
 

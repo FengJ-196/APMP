@@ -4,3 +4,4 @@ export * from './projects';
 export * from './files';
 export * from './sourceOfTruth';
 export * from './conflicts';
+export * from './integrations';

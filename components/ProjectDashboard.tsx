@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Upload, FileText, Image as ImageIcon, Trash2, ExternalLink, Plus, Loader2, CheckCircle2, AlertCircle, X, Copy, Code, Edit3 } from 'lucide-react';
+import { Upload, FileText, Image as ImageIcon, Trash2, ExternalLink, Plus, Loader2, CheckCircle2, AlertCircle, X, Copy, Code, Edit3, Settings } from 'lucide-react';
 import { projectsApi, filesApi, sourceOfTruthApi } from '@/lib/api';
 import SourceOfTruthPanel from './SourceOfTruthPanel';
 import WBSPanel from './WBSPanel';
+import IntegrationsModal from './IntegrationsModal';
 
 interface FileMetadata {
   id: string;
@@ -20,6 +21,8 @@ interface Project {
   title: string;
   status: string;
   files: FileMetadata[];
+  githubRepo?: string;
+  jiraProjectKey?: string;
 }
 
 export default function ProjectDashboard({ projectId }: { projectId: string }) {
@@ -37,8 +40,14 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [isSavingRename, setIsSavingRename] = useState(false);
+  const [isIntegrationsOpen, setIsIntegrationsOpen] = useState(false);
 
   useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
     const storedUserId = localStorage.getItem('userId');
     if (!storedUserId) {
       // For demo purposes we can fallback, but in real flow we should redirect
@@ -47,7 +56,7 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
       setUserId(storedUserId);
     }
     fetchProject();
-  }, [projectId]);
+  }, [projectId, router]);
 
   const fetchProject = async () => {
     try {
@@ -216,16 +225,26 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
           </h1>
         </div>
 
-        <label className="group relative flex items-center gap-3 px-6 py-3 bg-accent-primary hover:bg-accent-hover text-white rounded-xl font-semibold cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-accent-primary/20">
-          <Upload className="w-5 h-5" />
-          <span>Upload Source</span>
-          <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
-          {uploading && (
-            <div className="absolute inset-0 bg-accent-hover/80 rounded-xl flex items-center justify-center">
-              <Loader2 className="w-5 h-5 animate-spin" />
-            </div>
-          )}
-        </label>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsIntegrationsOpen(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-bg-surface hover:bg-bg-elevated border border-border-subtle hover:border-accent-primary/30 text-text-primary rounded-xl font-semibold transition-all hover:-translate-y-1 hover:shadow-lg cursor-pointer"
+          >
+            <Settings className="w-4 h-4 text-accent-primary animate-spin-slow" />
+            <span>Integrations</span>
+          </button>
+
+          <label className="group relative flex items-center gap-3 px-6 py-3 bg-accent-primary hover:bg-accent-hover text-white rounded-xl font-semibold cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg hover:shadow-accent-primary/20">
+            <Upload className="w-5 h-5" />
+            <span>Upload Source</span>
+            <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+            {uploading && (
+              <div className="absolute inset-0 bg-accent-hover/80 rounded-xl flex items-center justify-center">
+                <Loader2 className="w-5 h-5 animate-spin" />
+              </div>
+            )}
+          </label>
+        </div>
       </header>
 
       {error && (
@@ -397,6 +416,19 @@ export default function ProjectDashboard({ projectId }: { projectId: string }) {
 
       {/* Agile Work Breakdown Structure Tree */}
       <WBSPanel projectId={projectId} />
+
+      {/* Integrations Modal */}
+      <IntegrationsModal
+        isOpen={isIntegrationsOpen}
+        onClose={() => setIsIntegrationsOpen(false)}
+        projectId={projectId}
+        currentGithubRepo={project?.githubRepo}
+        currentJiraProjectKey={project?.jiraProjectKey}
+        onSaved={async () => {
+          setIsIntegrationsOpen(false);
+          await fetchProject();
+        }}
+      />
 
     </div>
   );

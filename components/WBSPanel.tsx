@@ -11,8 +11,13 @@ import {
   ListTodo, 
   Play, 
   FileText,
-  AlertCircle
+  AlertCircle,
+  X,
+  Settings,
+  Link2,
+  AlertTriangle
 } from 'lucide-react';
+import { projectsApi, integrationsApi } from '@/lib/api';
 
 // Custom inline SVG icons because Lucide 1.0+ removed brand icons
 function GithubIcon({ className = 'w-4 h-4' }: { className?: string }) {
@@ -73,31 +78,127 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
   const [streamingText, setStreamingText] = useState('');
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   
   // Sync inputs
-  const [ghOwner, setGhOwner] = useState('FengJ-196');
-  const [ghRepo, setGhRepo] = useState('APMP');
-  const [jiraProjectKey, setJiraProjectKey] = useState('KAN');
-  const [jiraEmail, setJiraEmail] = useState('thanhphongwf@gmail.com');
-  const [jiraDomain, setJiraDomain] = useState('graduationtestingspace.atlassian.net');
+  const [ghOwner, setGhOwner] = useState('');
+  const [ghRepo, setGhRepo] = useState('');
+  const [jiraProjectKey, setJiraProjectKey] = useState('');
+  const [jiraEmail, setJiraEmail] = useState('');
+  const [jiraDomain, setJiraDomain] = useState('');
   const [jiraToken, setJiraToken] = useState('');
+  const [isJiraOAuth, setIsJiraOAuth] = useState(false);
+  const [isGitHubOAuth, setIsGitHubOAuth] = useState(false);
+  const [showManualSyncOverride, setShowManualSyncOverride] = useState(false);
 
   // Sync statuses per item
   const [syncStates, setSyncStates] = useState<Record<string, { type: 'github' | 'jira'; status: 'syncing' | 'success' | 'error'; message?: string }>>({});
 
+  // RAG Story Point Estimation states
+  const [estimates, setEstimates] = useState<Record<string, any>>({});
+  const [estimatingIds, setEstimatingIds] = useState<Record<string, boolean>>({});
+  const [expandedEstimateIds, setExpandedEstimateIds] = useState<Record<string, boolean>>({});
+  const [estimatingAll, setEstimatingAll] = useState(false);
+
   useEffect(() => {
     fetchWBS();
+    loadIntegrationSettings();
   }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const syncStatus = params.get('sync');
+      if (syncStatus === 'github-success') {
+        setSuccessMessage('GitHub integration connected successfully!');
+        loadIntegrationSettings();
+        const url = new URL(window.location.href);
+        url.searchParams.delete('sync');
+        window.history.replaceState({}, '', url.pathname + url.search);
+      } else if (syncStatus === 'jira-success') {
+        setSuccessMessage('Jira integration connected successfully!');
+        loadIntegrationSettings();
+        const url = new URL(window.location.href);
+        url.searchParams.delete('sync');
+        window.history.replaceState({}, '', url.pathname + url.search);
+      }
+    }
+  }, []);
+
+  const loadIntegrationSettings = async () => {
+    try {
+      const project = await projectsApi.getById(projectId);
+      if (project) {
+        if (project.githubRepo) {
+          const parts = project.githubRepo.split('/');
+          if (parts.length === 2) {
+            setGhOwner(parts[0]);
+            setGhRepo(parts[1]);
+          } else {
+            setGhRepo(project.githubRepo);
+          }
+        } else {
+          setGhOwner('');
+          setGhRepo('');
+        }
+        if (project.jiraProjectKey) {
+          setJiraProjectKey(project.jiraProjectKey);
+        } else {
+          setJiraProjectKey('');
+        }
+      }
+
+      const intStatus = await integrationsApi.getStatus();
+      if (intStatus) {
+        setIsGitHubOAuth(intStatus.github?.connected && intStatus.github.authType === 'oauth');
+        setIsJiraOAuth(intStatus.jira?.connected && intStatus.jira.authType === 'oauth');
+        
+        if (intStatus.jira?.connected) {
+          if (intStatus.jira.domain) setJiraDomain(intStatus.jira.domain);
+          if (intStatus.jira.email) setJiraEmail(intStatus.jira.email);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load integration settings', err);
+    }
+  };
+
+  const fetchEstimates = async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/estimates`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const estMap: Record<string, any> = {};
+        data.forEach((est: any) => {
+          estMap[est.wbsItemId] = est;
+        });
+        setEstimates(estMap);
+      }
+    } catch (err) {
+      console.error('Failed to load story point estimates:', err);
+    }
+  };
 
   const fetchWBS = async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/projects/${projectId}/wbs`);
+      const res = await fetch(`/api/projects/${projectId}/wbs`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
       if (!res.ok) throw new Error('Failed to load WBS items.');
       const data = await res.json();
       setItems(data);
+      
+      // Load story point estimates concurrently
+      await fetchEstimates();
       
       // Auto-expand epics and stories on first load
       const initialExpanded: Record<string, boolean> = {};
@@ -115,6 +216,146 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
     }
   };
 
+  const handleEstimateStoryPoints = async (wbsItemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      setEstimatingIds(prev => ({ ...prev, [wbsItemId]: true }));
+      setError(null);
+
+      let userId: string | undefined;
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          userId = payload.userId || payload.id;
+        }
+      } catch (err) {
+        console.warn('Could not parse userId from token:', err);
+      }
+
+      const res = await fetch(`/api/wbs/${wbsItemId}/estimate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to estimate story points.');
+      }
+
+      const estimation = await res.json();
+      
+      // Update states
+      setEstimates(prev => ({ ...prev, [wbsItemId]: estimation }));
+      setExpandedEstimateIds(prev => ({ ...prev, [wbsItemId]: true }));
+      setExpandedIds(prev => ({ ...prev, [wbsItemId]: true })); // ensure task card is open
+      
+      setSuccessMessage('Story points estimated successfully using RAG!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to estimate story points.');
+    } finally {
+      setEstimatingIds(prev => ({ ...prev, [wbsItemId]: false }));
+    }
+  };
+
+  const handleUpdateStoryPoints = async (wbsItemId: string, finalPoints: number) => {
+    try {
+      // Optimistic state update
+      setEstimates(prev => {
+        const current = prev[wbsItemId];
+        if (current) {
+          return { ...prev, [wbsItemId]: { ...current, finalPoints } };
+         }
+         return prev;
+      });
+
+      let userId: string | undefined;
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          userId = payload.userId || payload.id;
+        }
+      } catch {}
+
+      const res = await fetch(`/api/wbs/${wbsItemId}/estimate`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify({ finalPoints, userId }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to save manual override.');
+      }
+
+      const updated = await res.json();
+      setEstimates(prev => ({ ...prev, [wbsItemId]: updated }));
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to update final story points.');
+    }
+  };
+
+  const handleEstimateAllStoryPoints = async () => {
+    try {
+      setEstimatingAll(true);
+      setError(null);
+
+      let userId: string | undefined;
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          userId = payload.userId || payload.id;
+        }
+      } catch (err) {
+        console.warn('Could not parse userId from token:', err);
+      }
+
+      const res = await fetch(`/api/projects/${projectId}/wbs/estimate-all`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to estimate story points for all tasks.');
+      }
+
+      const newEstimates = await res.json();
+      
+      // Update estimates state with all returned estimations
+      setEstimates(prev => {
+        const updated = { ...prev };
+        newEstimates.forEach((est: any) => {
+          updated[est.wbsItemId] = est;
+        });
+        return updated;
+      });
+      
+      setSuccessMessage(`Successfully estimated ${newEstimates.length} tasks/stories using RAG!`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to perform bulk story point estimation.');
+    } finally {
+      setEstimatingAll(false);
+    }
+  };
+
   const handleGenerateWBS = async () => {
     try {
       setGenerating(true);
@@ -122,6 +363,9 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
       setStreamingText('');
       const res = await fetch(`/api/projects/${projectId}/wbs`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -159,13 +403,20 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
       setError(null);
       const res = await fetch(`/api/wbs/${taskId}/breakdown`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
       });
       if (!res.ok) {
         const errText = await res.json();
         throw new Error(errText.error || 'Failed to breakdown task.');
       }
       // Re-fetch all items to show newly added subtasks
-      const fetchRes = await fetch(`/api/projects/${projectId}/wbs`);
+      const fetchRes = await fetch(`/api/projects/${projectId}/wbs`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
       const data = await fetchRes.json();
       setItems(data);
       
@@ -179,13 +430,56 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
     }
   };
 
+  const handleConnectGitHub = async () => {
+    try {
+      const res = await fetch(`/api/github/authorize?projectId=${projectId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to initiate GitHub authentication');
+      }
+      const { authorizeUrl } = await res.json();
+      window.location.href = authorizeUrl;
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleConnectJira = async () => {
+    try {
+      const res = await fetch(`/api/jira/authorize?projectId=${projectId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to initiate Jira authentication');
+      }
+      const { authorizeUrl } = await res.json();
+      window.location.href = authorizeUrl;
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleExportGitHub = async (wbsItemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!ghOwner || !ghRepo) {
+      alert('Please connect GitHub and select a repository in the Integrations panel first.');
+      return;
+    }
     try {
       setSyncStates(prev => ({ ...prev, [`${wbsItemId}-github`]: { type: 'github', status: 'syncing' } }));
       const res = await fetch('/api/github/export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
         body: JSON.stringify({ wbsItemId, owner: ghOwner, repo: ghRepo }),
       });
       if (!res.ok) {
@@ -211,18 +505,28 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
 
   const handleExportJira = async (wbsItemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!jiraProjectKey) {
+      alert('Please connect Jira and select a project key in the Integrations panel first.');
+      return;
+    }
     try {
       setSyncStates(prev => ({ ...prev, [`${wbsItemId}-jira`]: { type: 'jira', status: 'syncing' } }));
+      const exportBody: any = { wbsItemId, projectKey: jiraProjectKey };
+      
+      // Only send manual credentials if NOT using OAuth
+      if (!isJiraOAuth) {
+        exportBody.email = jiraEmail;
+        exportBody.domain = jiraDomain;
+        exportBody.apiToken = jiraToken;
+      }
+
       const res = await fetch('/api/jira/export', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          wbsItemId, 
-          projectKey: jiraProjectKey,
-          email: jiraEmail,
-          domain: jiraDomain,
-          apiToken: jiraToken
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        },
+        body: JSON.stringify(exportBody),
       });
       if (!res.ok) {
         const errData = await res.json();
@@ -272,10 +576,31 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
         </div>
         
         <div className="flex items-center gap-3 self-end lg:self-auto">
+          {items.length > 0 && (
+            <button
+              onClick={handleEstimateAllStoryPoints}
+              disabled={estimatingAll || generating || loading}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-bg-surface hover:bg-bg-overlay text-text-primary text-xs font-bold border border-border-subtle hover:border-accent-primary transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+              title="Run RAG story point estimation for all tasks/stories in this project"
+            >
+              {estimatingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
+                  <span>Estimating all tasks...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-accent-primary animate-pulse" />
+                  <span>Estimate All Tasks (RAG)</span>
+                </>
+              )}
+            </button>
+          )}
+
           <button
             onClick={handleGenerateWBS}
             disabled={generating || loading}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-accent-primary to-accent-hover text-white font-semibold hover:shadow-lg hover:shadow-accent-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-accent-primary to-accent-hover text-white font-semibold hover:shadow-lg hover:shadow-accent-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer text-xs"
           >
             {generating ? (
               <>
@@ -292,59 +617,124 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* Sync Configurations block */}
-      <div className="px-6 py-4 bg-bg-base/30 border-b border-border-subtle grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* GitHub configuration */}
-        <div className="space-y-2 p-3 bg-bg-elevated/40 rounded-xl border border-border-subtle/50">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary">
-            <GithubIcon className="w-3.5 h-3.5" />
-            <span>GitHub Sync Target</span>
+      {/* Sync Configurations Display & Override block */}
+      <div className="px-6 py-4 bg-bg-base/30 border-b border-border-subtle flex flex-col gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* GitHub configuration status */}
+          <div className="p-3 bg-bg-elevated/40 rounded-xl border border-border-subtle/50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded bg-bg-base text-text-primary">
+                <GithubIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider block">GitHub Sync Target</span>
+                {ghOwner && ghRepo ? (
+                  <span className="text-xs font-semibold text-text-primary flex items-center gap-1 mt-0.5">
+                    <Check className="w-3.5 h-3.5 text-status-success shrink-0" />
+                    <span className="truncate max-w-[200px]" title={`${ghOwner}/${ghRepo}`}>{ghOwner}/{ghRepo}</span>
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold text-status-error flex items-center gap-1 mt-0.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>No repository linked</span>
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input 
-              type="text" 
-              placeholder="Owner" 
-              value={ghOwner} 
-              onChange={e => setGhOwner(e.target.value)}
-              className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-            />
-            <input 
-              type="text" 
-              placeholder="Repo" 
-              value={ghRepo} 
-              onChange={e => setGhRepo(e.target.value)}
-              className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-            />
+
+          {/* Jira configuration status */}
+          <div className="p-3 bg-bg-elevated/40 rounded-xl border border-border-subtle/50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded bg-bg-base text-blue-400">
+                <TrelloIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider block">Jira Sync Target</span>
+                {jiraProjectKey ? (
+                  <span className="text-xs font-semibold text-text-primary flex items-center gap-1 mt-0.5">
+                    <Check className="w-3.5 h-3.5 text-status-success shrink-0" />
+                    <span>Project Key: <strong>{jiraProjectKey}</strong></span>
+                    {jiraDomain && <span className="text-[10px] text-text-tertiary truncate max-w-[120px]">({jiraDomain})</span>}
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold text-status-error flex items-center gap-1 mt-0.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>No project linked</span>
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Jira configuration */}
-        <div className="col-span-1 lg:col-span-2 space-y-2 p-3 bg-bg-elevated/40 rounded-xl border border-border-subtle/50 grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="md:col-span-3 flex items-center gap-1.5 text-xs font-semibold text-text-secondary">
-            <TrelloIcon className="w-3.5 h-3.5 text-blue-400" />
-            <span>Jira Sync Target & Credentials</span>
-          </div>
-          <input 
-            type="text" 
-            placeholder="Proj Key (e.g. KAN)" 
-            value={jiraProjectKey} 
-            onChange={e => setJiraProjectKey(e.target.value)}
-            className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-          />
-          <input 
-            type="text" 
-            placeholder="Jira Email" 
-            value={jiraEmail} 
-            onChange={e => setJiraEmail(e.target.value)}
-            className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-          />
-          <input 
-            type="text" 
-            placeholder="Jira Domain" 
-            value={jiraDomain} 
-            onChange={e => setJiraDomain(e.target.value)}
-            className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-          />
+        {/* Option to show manual config override forms */}
+        <div className="border-t border-border-subtle/40 pt-3">
+          <button
+            onClick={() => setShowManualSyncOverride(!showManualSyncOverride)}
+            className="text-[10px] text-text-tertiary hover:text-accent-primary font-bold flex items-center gap-1 focus:outline-none cursor-pointer"
+          >
+            <Settings className="w-3 h-3" />
+            <span>{showManualSyncOverride ? 'Hide Advanced Credentials Override' : 'Show Advanced Credentials Override'}</span>
+          </button>
+
+          {showManualSyncOverride && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-3 p-3 bg-bg-base/50 rounded-xl border border-border-subtle/30 animate-fade-in-up">
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-text-secondary uppercase">GitHub Override</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Owner" 
+                    value={ghOwner} 
+                    onChange={e => setGhOwner(e.target.value)}
+                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Repo" 
+                    value={ghRepo} 
+                    onChange={e => setGhRepo(e.target.value)}
+                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
+                  />
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 space-y-2">
+                <span className="text-[10px] font-bold text-text-secondary uppercase">Jira Override (Basic Auth credentials)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Proj Key" 
+                    value={jiraProjectKey} 
+                    onChange={e => setJiraProjectKey(e.target.value)}
+                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Jira Email" 
+                    value={jiraEmail} 
+                    onChange={e => setJiraEmail(e.target.value)}
+                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Jira Domain" 
+                    value={jiraDomain} 
+                    onChange={e => setJiraDomain(e.target.value)}
+                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
+                  />
+                  <input 
+                    type="password" 
+                    placeholder="Jira Token" 
+                    value={jiraToken} 
+                    onChange={e => setJiraToken(e.target.value)}
+                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -352,6 +742,18 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
         <div className="p-4 bg-status-error-glow text-status-error text-sm font-medium border-b border-status-error/20 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="p-4 bg-accent-subtle text-accent-primary text-sm font-medium border-b border-accent-primary/20 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 shrink-0 text-accent-primary" />
+            <span>{successMessage}</span>
+          </div>
+          <button onClick={() => setSuccessMessage(null)} className="text-text-tertiary hover:text-text-secondary cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -498,6 +900,49 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
 
                                       {/* Task Actions */}
                                       <div className="flex items-center gap-2 shrink-0 self-end md:self-center" onClick={e => e.stopPropagation()}>
+                                        {/* RAG Story Point Estimate Trigger / Badge */}
+                                        {(task.type === 'task' || task.type === 'story') && (
+                                          <>
+                                            {estimates[task.id] ? (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setExpandedEstimateIds(prev => ({ ...prev, [task.id]: !prev[task.id] }));
+                                                  setExpandedIds(prev => ({ ...prev, [task.id]: true })); // ensure task card is open
+                                                }}
+                                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                                                  expandedEstimateIds[task.id]
+                                                    ? 'bg-accent-primary text-white border-accent-primary shadow-sm shadow-accent-primary/20'
+                                                    : 'bg-accent-subtle hover:bg-accent-primary hover:text-white text-accent-primary border-accent-primary/20 hover:border-accent-primary transition-all'
+                                                }`}
+                                                title="View RAG Estimate details"
+                                              >
+                                                <Sparkles className="w-3.5 h-3.5" />
+                                                <span>{estimates[task.id].finalPoints ?? estimates[task.id].aiSuggestedPoints} SP</span>
+                                              </button>
+                                            ) : (
+                                              <button
+                                                onClick={(e) => handleEstimateStoryPoints(task.id, e)}
+                                                disabled={estimatingIds[task.id]}
+                                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-bg-elevated hover:bg-bg-overlay text-text-secondary hover:text-text-primary text-[11px] font-semibold border border-border-subtle hover:border-border-focus transition-all disabled:opacity-40"
+                                                title="Estimate story points using Qdrant RAG + Gemini"
+                                              >
+                                                {estimatingIds[task.id] ? (
+                                                  <>
+                                                    <Loader2 className="w-3 h-3 animate-spin text-accent-primary" />
+                                                    <span>Estimating...</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Sparkles className="w-3 h-3 text-accent-primary animate-pulse" />
+                                                    <span>Estimate (RAG)</span>
+                                                  </>
+                                                )}
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+
                                         {/* Breakdown to subtasks */}
                                         <button
                                           onClick={(e) => handleBreakdownTask(task.id, e)}
@@ -560,7 +1005,102 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
 
                                     {/* Task content (Level 4 Subtasks) */}
                                     {isTaskExpanded && (
-                                      <div className="p-3 bg-bg-base/30 border-t border-border-subtle/30 space-y-2">
+                                      <div className="p-3 bg-bg-base/30 border-t border-border-subtle/30 space-y-3">
+                                        
+                                        {/* RAG Story Point Estimation Details Card */}
+                                        {expandedEstimateIds[task.id] && estimates[task.id] && (
+                                          <div className="p-4 bg-bg-elevated/40 rounded-xl border border-accent-primary/25 space-y-4 animate-fade-in-up">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-subtle/40 pb-3">
+                                              <div className="flex items-center gap-2">
+                                                <div className="p-1 rounded bg-accent-subtle text-accent-primary animate-pulse">
+                                                  <Sparkles className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                  <span className="text-xs font-bold text-text-primary">RAG Story Point Estimation</span>
+                                                  <span className="text-[9px] text-text-tertiary block mt-0.5">Ground truth matching via historical project data</span>
+                                                </div>
+                                              </div>
+                                              
+                                              {/* Select override + Confidence */}
+                                              <div className="flex items-center gap-4 self-end sm:self-auto" onClick={e => e.stopPropagation()}>
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-[10px] text-text-tertiary font-bold uppercase tracking-wider">Override:</span>
+                                                  <select
+                                                    value={estimates[task.id].finalPoints ?? estimates[task.id].aiSuggestedPoints ?? ''}
+                                                    onChange={(e) => handleUpdateStoryPoints(task.id, Number(e.target.value))}
+                                                    className="text-xs font-bold px-2 py-1 bg-bg-surface border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary cursor-pointer"
+                                                  >
+                                                    {[1, 2, 3, 5, 8, 13, 20].map((pts) => (
+                                                      <option key={pts} value={pts}>{pts} Points</option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 border-l border-border-subtle/40 pl-4">
+                                                  <span className="text-[10px] text-text-tertiary font-bold uppercase tracking-wider">Confidence:</span>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <div className="w-12 h-1.5 bg-bg-surface rounded-full overflow-hidden shrink-0">
+                                                      <div 
+                                                        className={`h-full rounded-full ${
+                                                          estimates[task.id].confidence >= 0.8
+                                                            ? 'bg-accent-primary'
+                                                            : estimates[task.id].confidence >= 0.5
+                                                            ? 'bg-status-warning'
+                                                            : 'bg-status-error'
+                                                        }`}
+                                                        style={{ width: `${estimates[task.id].confidence * 100}%` }}
+                                                      />
+                                                    </div>
+                                                    <span className="text-[10px] font-mono font-bold text-text-secondary">
+                                                      {(estimates[task.id].confidence * 100).toFixed(0)}%
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* AI Rationale */}
+                                            {estimates[task.id].rationale && (
+                                              <div className="text-xs space-y-1.5">
+                                                <span className="text-[9px] font-bold uppercase tracking-wider text-text-tertiary block">Estimation Rationale</span>
+                                                <p className="text-text-secondary leading-relaxed font-sans bg-bg-base/35 p-3 rounded-xl border border-border-subtle/40 shadow-inner">
+                                                  {estimates[task.id].rationale}
+                                                </p>
+                                              </div>
+                                            )}
+
+                                            {/* RAG Analog References */}
+                                            {estimates[task.id].ragReferences && estimates[task.id].ragReferences.length > 0 && (
+                                              <div className="space-y-2">
+                                                <span className="text-[9px] font-bold uppercase tracking-wider text-text-tertiary block">RAG Analog References (Qdrant Matches)</span>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                  {estimates[task.id].ragReferences.map((ref: any, idx: number) => (
+                                                    <div key={idx} className="p-3 bg-bg-surface/50 rounded-xl border border-border-subtle/30 flex flex-col justify-between hover:border-border-focus/30 transition-colors">
+                                                      <div>
+                                                        <div className="flex items-center justify-between gap-2 border-b border-border-subtle/30 pb-2 mb-2">
+                                                          <span className="text-[10px] font-bold text-text-tertiary">Match #{idx + 1}</span>
+                                                          <span className="text-[9px] font-mono font-bold text-accent-primary bg-accent-subtle px-1.5 py-0.5 rounded border border-accent-primary/10">
+                                                            {(ref.similarityScore * 100).toFixed(0)}% Match
+                                                          </span>
+                                                        </div>
+                                                        <h6 className="text-[11px] font-bold text-text-primary line-clamp-2 leading-relaxed" title={ref.similarItemTitle}>
+                                                          {ref.similarItemTitle}
+                                                        </h6>
+                                                      </div>
+                                                      <div className="mt-3.5 flex items-center justify-between text-[10px] pt-1.5 border-t border-border-subtle/20">
+                                                        <span className="text-text-tertiary">Completed points:</span>
+                                                        <span className="font-mono font-bold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/10">
+                                                          {ref.similarItemPoints} SP
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
                                         {taskSubtasks.length === 0 ? (
                                           <div className="text-[10px] text-text-tertiary italic pl-6 py-1">
                                             No subtasks decomposed yet. Click the "Subtasks" breakdown trigger button above.

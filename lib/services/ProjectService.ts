@@ -1,4 +1,4 @@
-import { createProject, findProjectsByUserId, findProjectById } from '../models/Project';
+import { createProject, findProjectsByUserId, findProjectById, updateProject } from '../models/Project';
 import { CreateProjectInputSchema, type ProjectDTO } from '@/dtos';
 import { SourceOfTruthService } from './SourceOfTruthService';
 
@@ -50,5 +50,15 @@ export class ProjectService {
       throw new Error('Project ID is required');
     }
     return findProjectById(projectId);
+  }
+
+  /**
+   * Updates an existing project's attributes.
+   */
+  static async updateProject(projectId: string, input: Partial<any>): Promise<ProjectDTO | undefined> {
+    if (!projectId) {
+      throw new Error('Project ID is required');
+    }
+    return updateProject(projectId, input);
   }
 }
