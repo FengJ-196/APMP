@@ -7,6 +7,7 @@ import {
   ANALYZE_CONFLICTS_PROMPT,
   buildWBSBreakdownPrompt,
   buildDeveloperSubtaskBreakdownPrompt,
+  buildStoryPointEstimationPrompt,
 } from '../prompts';
 
 /**
@@ -598,6 +599,41 @@ export class OpenRouterGatewayProvider implements IAIServiceProvider {
           description: "Implement responsive checkout button and integrate payment flow callback handling."
         }
       ];
+    }
+  }
+
+  async estimateStoryPoints(
+    taskTitle: string,
+    taskDescription: string,
+    references: Array<{ title: string; description: string; points: number }>
+  ): Promise<{ suggestedPoints: number; rationale: string; confidence: number }> {
+    try {
+      const prompt = buildStoryPointEstimationPrompt(taskTitle, taskDescription, references);
+      const responseText = await this.callOpenRouterWithTask(
+        AITask.ESTIMATE_POINTS,
+        [
+          { role: 'user', content: prompt }
+        ],
+        true
+      );
+
+      const cleanJson = responseText.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleanJson);
+      return {
+        suggestedPoints: Number(parsed.suggestedPoints) || 0,
+        rationale: parsed.rationale || '',
+        confidence: Number(parsed.confidence) || 0,
+      };
+    } catch (err) {
+      console.warn("estimateStoryPoints: dynamic router error hit, falling back to mock", err);
+      const avg = references.length > 0 
+        ? Math.round(references.reduce((acc, r) => acc + r.points, 0) / references.length)
+        : 3;
+      return {
+        suggestedPoints: avg,
+        rationale: `Failed to communicate with AI estimation gateway. Calculated fallback average points from the ${references.length} similar historical references.`,
+        confidence: 0.5,
+      };
     }
   }
 }

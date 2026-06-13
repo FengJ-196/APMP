@@ -3,7 +3,8 @@ export enum AITask {
   ANALYZE_CONFLICTS = 'analyze_conflicts',
   REFORMAT_MARKDOWN = 'reformat_markdown',
   GENERATE_WBS = 'generate_wbs',
-  GENERATE_SUBTASKS = 'generate_subtasks'
+  GENERATE_SUBTASKS = 'generate_subtasks',
+  ESTIMATE_POINTS = 'estimate_points'
 }
 
 export interface TaskRouteConfig {
@@ -13,7 +14,14 @@ export interface TaskRouteConfig {
   fallbackModel?: string;   // Optional model if primary model experiences downtime
 }
 
-export type TaskRoutingMap = Record<AITask, TaskRouteConfig>;
+export interface TaskRoutingMap {
+  [AITask.DIAGRAM_TO_MERMAID]: TaskRouteConfig;
+  [AITask.ANALYZE_CONFLICTS]: TaskRouteConfig;
+  [AITask.REFORMAT_MARKDOWN]: TaskRouteConfig;
+  [AITask.GENERATE_WBS]: TaskRouteConfig;
+  [AITask.GENERATE_SUBTASKS]: TaskRouteConfig;
+  [AITask.ESTIMATE_POINTS]: TaskRouteConfig;
+}
 
 export const DEFAULT_ROUTING_MAP: TaskRoutingMap = {
   [AITask.DIAGRAM_TO_MERMAID]: {
@@ -42,6 +50,12 @@ export const DEFAULT_ROUTING_MAP: TaskRoutingMap = {
     model: 'deepseek/deepseek-v4-flash',
     temperature: 0.2,
     maxTokens: 3000,
+    fallbackModel: 'google/gemini-2.5-flash',
+  },
+  [AITask.ESTIMATE_POINTS]: {
+    model: 'deepseek/deepseek-v4-flash',
+    temperature: 0.2,
+    maxTokens: 2048,
     fallbackModel: 'google/gemini-2.5-flash',
   },
 };

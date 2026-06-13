@@ -70,6 +70,15 @@ export interface IAIServiceProvider {
    * Decomposes a Level 3 Task into concrete Level 4 developer subtasks.
    */
   generateDeveloperSubtasks(task: any, config: any, sourceOfTruth: string): Promise<any[]>;
+
+  /**
+   * Estimates story points for a task given a set of historical RAG analog references.
+   */
+  estimateStoryPoints(
+    taskTitle: string,
+    taskDescription: string,
+    references: Array<{ title: string; description: string; points: number }>
+  ): Promise<{ suggestedPoints: number; rationale: string; confidence: number }>;
 }
 
 /**

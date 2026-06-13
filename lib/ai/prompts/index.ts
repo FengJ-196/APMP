@@ -246,4 +246,49 @@ Example JSON output:
 CRITICAL: Return ONLY a valid JSON array. Do not wrap the JSON output in \`\`\`json tags.`;
 }
 
+export function buildStoryPointEstimationPrompt(
+  taskTitle: string,
+  taskDescription: string,
+  references: Array<{ title: string; description: string; points: number }>
+): string {
+  const refsStr = references.map((ref, idx) => `
+### REFERENCE TASK #${idx + 1}:
+*   **Title**: ${ref.title}
+*   **Description**: ${ref.description || 'No description'}
+*   **Completed Story Points**: ${ref.points}
+`).join('\n');
+
+  return `You are a Senior Project Manager and Agile Estimator. Your goal is to estimate story points for a target software development task based on historical analog references (RAG).
+
+---
+## TARGET TASK TO ESTIMATE:
+*   **Title**: ${taskTitle}
+*   **Description**: ${taskDescription || 'No description'}
+
+---
+## HISTORICAL ANALOG REFERENCES:
+Here are completed tasks and their story points for comparison:
+${refsStr}
+
+---
+## ESTIMATION RULES:
+1. Compare the complexity, uncertainty, and development effort of the TARGET TASK with the HISTORICAL ANALOG REFERENCES.
+2. Recommend standard Agile story points (Fibonacci sequence: 1, 2, 3, 5, 8, 13, 20).
+3. Provide a clear technical rationale explaining why the target task maps to the recommended points compared to the references.
+4. Set a confidence score between 0.0 and 1.0 based on how closely the references match the target task.
+
+---
+## OUTPUT FORMAT (JSON OBJECT ONLY):
+You must output a single JSON object. No conversational prefix, suffix, or formatting tags.
+
+Example JSON output:
+{
+  "suggestedPoints": 5,
+  "rationale": "This task requires setting up a new endpoint and saving to database, similar to Reference Task #1 which was 5 points, but it is slightly less complex than Reference Task #2 which was 8 points.",
+  "confidence": 0.85
+}
+
+CRITICAL: Return ONLY a valid JSON object. Do not wrap the JSON output in \`\`\`json tags.`;
+}
+
 

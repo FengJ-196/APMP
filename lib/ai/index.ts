@@ -1,5 +1,4 @@
 import { IAIServiceProvider } from './types';
-import { GeminiProvider } from './providers/GeminiProvider';
 import { OpenRouterGatewayProvider } from './providers/OpenRouterGatewayProvider';
 import { TaskRoutingMap, DEFAULT_ROUTING_MAP } from './routerTypes';
 
@@ -15,18 +14,9 @@ export class AIService {
   }
 
   private initializeProvider() {
-    const providerType = process.env.AI_PROVIDER || 'gemini';
-
-    if (providerType === 'gemini') {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_OTHER_API_KEY || '';
-      if (apiKey) {
-        this.provider = new GeminiProvider(apiKey);
-      }
-    } else if (providerType === 'deepseek') {
-      const apiKey = process.env.OPENROUTER_API_KEY || '';
-      if (apiKey) {
-        this.provider = new OpenRouterGatewayProvider(apiKey, DEFAULT_ROUTING_MAP);
-      }
+    const apiKey = process.env.OPENROUTER_API_KEY || '';
+    if (apiKey) {
+      this.provider = new OpenRouterGatewayProvider(apiKey, DEFAULT_ROUTING_MAP);
     }
   }
 
@@ -123,6 +113,18 @@ export class AIService {
   public async generateDeveloperSubtasks(task: any, config: any, sourceOfTruth: string): Promise<any[]> {
     if (!this.provider) throw new Error('AI Provider not initialized');
     return this.provider.generateDeveloperSubtasks(task, config, sourceOfTruth);
+  }
+
+  /**
+   * Estimates story points for a task given a set of historical RAG analog references.
+   */
+  public async estimateStoryPoints(
+    taskTitle: string,
+    taskDescription: string,
+    references: Array<{ title: string; description: string; points: number }>
+  ): Promise<{ suggestedPoints: number; rationale: string; confidence: number }> {
+    if (!this.provider) throw new Error('AI Provider not initialized');
+    return this.provider.estimateStoryPoints(taskTitle, taskDescription, references);
   }
 }
 
