@@ -1,30 +1,34 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
+import { authenticateUser } from '@/lib/api/authMiddleware';
 import { OAuthService } from '@/lib/jira/OAuthService';
+import jwt from 'jsonwebtoken';
 
-export async function GET() {
+const STATE_SECRET = process.env.ACCESS_TOKEN_SECRET || 'apmp-access-secret-dev-key-2026';
+
+export async function GET(request: NextRequest) {
   try {
+    const { userId } = authenticateUser(request);
+    
+    const { searchParams } = new URL(request.url);
+    const projectId = searchParams.get('projectId') || '';
+
     const state = OAuthService.generateState();
 
-    // Save state in cookies for CSRF verification in callback
-    const cookieStore = await cookies();
-    cookieStore.set('jira_oauth_state', JSON.stringify({
-      state,
-      createdAt: Date.now(),
-    }), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 600, // 10 minutes
-      path: '/',
-    });
+    // Sign the OAuth state payload to securely transfer session context
+    const stateToken = jwt.sign(
+      { userId, state, projectId },
+      STATE_SECRET,
+      { expiresIn: '10m' }
+    );
 
-    const authorizeUrl = OAuthService.getAuthorizeUrl(state);
-    return NextResponse.redirect(authorizeUrl);
-  } catch (error) {
+    const authorizeUrl = OAuthService.getAuthorizeUrl(stateToken);
+    return NextResponse.json({ authorizeUrl });
+  } catch (error: any) {
     console.error('Jira authorization initiation failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal Server Error' },
-      { status: 500 }
+      { error: error.message || 'Internal Server Error' },
+      { status: error.status || 500 }
     );
   }
 }
+

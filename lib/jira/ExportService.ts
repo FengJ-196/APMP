@@ -4,6 +4,8 @@ import dbConnect from '../db';
 import { ADFConverter } from './ADFConverter';
 import { OAuthService } from './OAuthService';
 import { JiraIssueResponse } from './types';
+import { getIntegration, saveIntegration } from '../models/UserIntegration';
+import { encrypt, decrypt } from '../utils/encryption';
 
 export class ExportService {
   /**
@@ -30,12 +32,14 @@ export class ExportService {
    */
   static async exportWBSItemToJira(
     wbsItemId: string,
-    cloudIdOrDomain: string,
     projectKey: string,
     issueTypeName: string,
-    accessTokenOrApiToken: string,
-    email?: string,
-    domain?: string
+    userId: string,
+    fallbackBasicAuth?: {
+      email?: string;
+      domain?: string;
+      apiToken?: string;
+    }
   ): Promise<any> {
     await dbConnect();
 
@@ -57,23 +61,56 @@ export class ExportService {
     const finalIssueType = issueTypeName || this.mapToJiraIssueType(wbsItem.type);
 
     // Determine authentication scheme (Basic Auth vs OAuth 2.0 Bearer)
-    const jiraEmail = email || process.env.E2E_JIRA_EMAIL || process.env.JIRA_EMAIL;
-    const jiraDomain = domain || (cloudIdOrDomain && cloudIdOrDomain.includes('.atlassian.net') ? cloudIdOrDomain : (process.env.E2E_JIRA_DOMAIN || process.env.JIRA_DOMAIN));
-    const isBasicAuth = !!(jiraEmail && jiraDomain);
+    const integration = await getIntegration(userId, 'jira');
 
-    let requestUrl = `https://api.atlassian.com/ex/jira/${cloudIdOrDomain}/rest/api/3/issue`;
-    let authHeader = `Bearer ${accessTokenOrApiToken}`;
+    let cloudIdOrDomain: string | undefined;
+    let accessTokenOrApiToken: string | undefined;
+    let email: string | undefined;
+    let domain: string | undefined;
+    let isBasicAuth = false;
+    let isOAuth = false;
+
+    if (integration) {
+      if (integration.authType === 'oauth') {
+        cloudIdOrDomain = integration.cloudId;
+        accessTokenOrApiToken = decrypt(integration.encryptedAccessToken);
+        isOAuth = true;
+        isBasicAuth = false;
+      } else {
+        cloudIdOrDomain = integration.domain;
+        accessTokenOrApiToken = decrypt(integration.encryptedAccessToken);
+        email = integration.email;
+        domain = integration.domain;
+        isBasicAuth = true;
+      }
+    } else if (fallbackBasicAuth && fallbackBasicAuth.apiToken && fallbackBasicAuth.email && fallbackBasicAuth.domain) {
+      cloudIdOrDomain = fallbackBasicAuth.domain;
+      accessTokenOrApiToken = fallbackBasicAuth.apiToken;
+      email = fallbackBasicAuth.email;
+      domain = fallbackBasicAuth.domain;
+      isBasicAuth = true;
+    }
+
+    if (!accessTokenOrApiToken) {
+      throw new Error('Jira integration not found or no authentication credentials provided.');
+    }
+
+    let requestUrl = '';
+    let authHeader = '';
 
     if (isBasicAuth) {
-      const sanitizedDomain = jiraDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      const sanitizedDomain = domain!.replace(/^https?:\/\//, '').replace(/\/$/, '');
       requestUrl = `https://${sanitizedDomain}/rest/api/3/issue`;
-      const credentials = Buffer.from(`${jiraEmail}:${accessTokenOrApiToken}`).toString('base64');
+      const credentials = Buffer.from(`${email}:${accessTokenOrApiToken}`).toString('base64');
       authHeader = `Basic ${credentials}`;
+    } else {
+      requestUrl = `https://api.atlassian.com/ex/jira/${cloudIdOrDomain}/rest/api/3/issue`;
+      authHeader = `Bearer ${accessTokenOrApiToken}`;
     }
 
     try {
       // 5. Post issue creation request to Atlassian Jira REST API v3
-      const response = await fetch(requestUrl, {
+      let response = await fetch(requestUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -95,19 +132,72 @@ export class ExportService {
       });
 
       if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Jira API returned ${response.status}: ${errorBody}`);
+        // If 401 and refresh token is available, attempt to refresh the token
+        if (response.status === 401 && isOAuth && integration && integration.encryptedRefreshToken) {
+          try {
+            console.log('Jira access token expired. Attempting token refresh...');
+            const refreshToken = decrypt(integration.encryptedRefreshToken);
+            const tokenData = await OAuthService.refreshToken(refreshToken);
+            
+            const newEncryptedAccessToken = encrypt(tokenData.access_token);
+            const newEncryptedRefreshToken = tokenData.refresh_token ? encrypt(tokenData.refresh_token) : undefined;
+            const newExpiresAt = tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1000) : undefined;
+
+            await saveIntegration({
+              userId,
+              platform: 'jira',
+              encryptedAccessToken: newEncryptedAccessToken,
+              encryptedRefreshToken: newEncryptedRefreshToken || integration.encryptedRefreshToken,
+              expiresAt: newExpiresAt,
+              cloudId: integration.cloudId,
+              authType: 'oauth',
+            });
+
+            accessTokenOrApiToken = tokenData.access_token;
+            authHeader = `Bearer ${accessTokenOrApiToken}`;
+
+            // Retry export
+            response = await fetch(requestUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': authHeader,
+              },
+              body: JSON.stringify({
+                fields: {
+                  project: {
+                    key: projectKey,
+                  },
+                  summary,
+                  description: descriptionADF,
+                  issuetype: {
+                    name: finalIssueType,
+                  },
+                },
+              }),
+            });
+          } catch (refreshErr: any) {
+            console.error('Jira automatic token refresh/retry failed:', refreshErr);
+            throw new Error(`Jira token expired and refresh failed: ${refreshErr.message}`);
+          }
+        }
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`Jira API returned ${response.status}: ${errorBody}`);
+        }
       }
 
       const issueData = (await response.json()) as JiraIssueResponse;
 
       // 6. Dynamically resolve the site's browse domain matching this cloudId for external URL construction
       let siteUrl = `https://atlassian.net`; // generic fallback
-      if (isBasicAuth && jiraDomain) {
-        siteUrl = `https://${jiraDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
+      if (isBasicAuth && domain) {
+        siteUrl = `https://${domain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
       } else {
         try {
-          const sites = await OAuthService.getAccessibleResources(accessTokenOrApiToken);
+          const sites = await OAuthService.getAccessibleResources(accessTokenOrApiToken!);
           const currentSite = sites.find((s) => s.id === cloudIdOrDomain);
           if (currentSite && currentSite.url) {
             siteUrl = currentSite.url;
@@ -162,3 +252,4 @@ export class ExportService {
     }
   }
 }
+

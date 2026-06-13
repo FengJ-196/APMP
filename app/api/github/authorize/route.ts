@@ -1,33 +1,36 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
+import { authenticateUser } from '@/lib/api/authMiddleware';
 import { OAuthService } from '@/lib/github/OAuthService';
+import jwt from 'jsonwebtoken';
 
-export async function GET() {
+const STATE_SECRET = process.env.ACCESS_TOKEN_SECRET || 'apmp-access-secret-dev-key-2026';
+
+export async function GET(request: NextRequest) {
   try {
+    const { userId } = authenticateUser(request);
+    
+    const { searchParams } = new URL(request.url);
+    const projectId = searchParams.get('projectId') || '';
+
     const state = OAuthService.generateState();
     const codeVerifier = OAuthService.generateCodeVerifier();
     const codeChallenge = OAuthService.generateCodeChallenge(codeVerifier);
 
-    // Save state and verifier in cookies for verification in callback
-    const cookieStore = await cookies();
-    cookieStore.set('github_oauth_state', JSON.stringify({
-      state,
-      code_verifier: codeVerifier,
-      createdAt: Date.now(),
-    }), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 600, // 10 minutes
-      path: '/',
-    });
+    // Sign the OAuth state payload to securely transfer session context
+    const stateToken = jwt.sign(
+      { userId, state, code_verifier: codeVerifier, projectId },
+      STATE_SECRET,
+      { expiresIn: '10m' }
+    );
 
-    const authorizeUrl = OAuthService.getAuthorizeUrl(state, codeChallenge);
-    return NextResponse.redirect(authorizeUrl);
-  } catch (error) {
+    const authorizeUrl = OAuthService.getAuthorizeUrl(stateToken, codeChallenge);
+    return NextResponse.json({ authorizeUrl });
+  } catch (error: any) {
     console.error('GitHub authorization initiation failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal Server Error' },
-      { status: 500 }
+      { error: error.message || 'Internal Server Error' },
+      { status: error.status || 500 }
     );
   }
 }
+

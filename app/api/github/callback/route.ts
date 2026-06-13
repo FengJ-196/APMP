@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { OAuthService } from '@/lib/github/OAuthService';
+import { saveIntegration } from '@/lib/models/UserIntegration';
+import { encrypt } from '@/lib/utils/encryption';
+import jwt from 'jsonwebtoken';
+
+const STATE_SECRET = process.env.ACCESS_TOKEN_SECRET || 'apmp-access-secret-dev-key-2026';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,56 +16,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing code or state parameter' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const storedStateCookie = cookieStore.get('github_oauth_state');
-
-    if (!storedStateCookie) {
-      return NextResponse.json({ error: 'OAuth state cookie expired or missing' }, { status: 400 });
+    // 1. Verify and decode signed OAuth state JWT
+    let decodedState: any;
+    try {
+      decodedState = jwt.verify(state, STATE_SECRET);
+    } catch (err) {
+      return NextResponse.json({ error: 'State validation failed or expired. Untrusted source.' }, { status: 400 });
     }
 
-    const storedOAuthState = JSON.parse(storedStateCookie.value);
+    const { userId, code_verifier, projectId } = decodedState;
 
-    // Verify state to mitigate CSRF attacks
-    if (storedOAuthState.state !== state) {
-      return NextResponse.json({ error: 'State validation failed. Untrusted source.' }, { status: 400 });
-    }
+    // 2. Exchange code for user access token
+    const tokenData = await OAuthService.exchangeCodeForToken(code, code_verifier);
 
-    // Exchange code for user access token
-    const tokenData = await OAuthService.exchangeCodeForToken(code, storedOAuthState.code_verifier);
+    // 3. Encrypt access & refresh tokens
+    const encryptedAccessToken = encrypt(tokenData.access_token);
+    const encryptedRefreshToken = tokenData.refresh_token ? encrypt(tokenData.refresh_token) : undefined;
+    const expiresAt = tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1000) : undefined;
 
-    // Delete the single-use state cookie
-    cookieStore.delete('github_oauth_state');
-
-    // Securely set the access token in HTTP-only cookie
-    cookieStore.set('github_access_token', tokenData.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: tokenData.expires_in || 28800, // standard 8 hours
-      path: '/',
+    // 4. Persist integration credentials to database
+    await saveIntegration({
+      userId,
+      platform: 'github',
+      encryptedAccessToken,
+      encryptedRefreshToken,
+      expiresAt,
+      authType: 'oauth',
     });
 
-    if (tokenData.refresh_token) {
-      cookieStore.set('github_refresh_token', tokenData.refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 15897600, // standard 6 months
-        path: '/',
-      });
-    }
+    // 5. Redirect browser back to the frontend project page or default settings
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const redirectTarget = projectId
+      ? `${baseUrl}/projects/${projectId}?sync=github-success`
+      : `${baseUrl}/settings?sync=github-success`;
 
-    // Return successful token confirmation page or JSON.
-    // For standalone flow, we can return JSON or redirect to a dashboard page.
-    return NextResponse.json({
-      success: true,
-      message: 'GitHub authentication completed successfully.',
-      scope: tokenData.scope,
-      token_type: tokenData.token_type,
-    });
-  } catch (error) {
+    return NextResponse.redirect(redirectTarget);
+  } catch (error: any) {
     console.error('GitHub authorization callback failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal Server Error' },
+      { error: error.message || 'Internal Server Error' },
       { status: 500 }
     );
   }
 }
+

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { OAuthService } from '@/lib/jira/OAuthService';
+import { saveIntegration } from '@/lib/models/UserIntegration';
+import { encrypt } from '@/lib/utils/encryption';
+import jwt from 'jsonwebtoken';
+
+const STATE_SECRET = process.env.ACCESS_TOKEN_SECRET || 'apmp-access-secret-dev-key-2026';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,68 +16,55 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing code or state parameter' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const storedStateCookie = cookieStore.get('jira_oauth_state');
-
-    if (!storedStateCookie) {
-      return NextResponse.json({ error: 'OAuth state cookie expired or missing' }, { status: 400 });
+    // 1. Verify and decode signed OAuth state JWT
+    let decodedState: any;
+    try {
+      decodedState = jwt.verify(state, STATE_SECRET);
+    } catch (err) {
+      return NextResponse.json({ error: 'State validation failed or expired. Untrusted source.' }, { status: 400 });
     }
 
-    const storedOAuthState = JSON.parse(storedStateCookie.value);
+    const { userId, projectId } = decodedState;
 
-    // Verify state value to mitigate CSRF attacks
-    if (storedOAuthState.state !== state) {
-      return NextResponse.json({ error: 'State validation failed. Untrusted source.' }, { status: 400 });
-    }
-
-    // Exchange auth code for Atlassian access & refresh tokens
+    // 2. Exchange auth code for Atlassian access & refresh tokens
     const tokenData = await OAuthService.exchangeCodeForToken(code);
 
-    // Fetch accessible site resources to auto-resolve the default cloudId target
+    // 3. Fetch accessible site resources to auto-resolve the default cloudId target
     const sites = await OAuthService.getAccessibleResources(tokenData.access_token);
-    
-    // Delete single-use state cookie
-    cookieStore.delete('jira_oauth_state');
-
-    // Securely set tokens in cookies
-    cookieStore.set('jira_access_token', tokenData.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: tokenData.expires_in || 3600, // typically 1 hour
-      path: '/',
-    });
-
-    if (tokenData.refresh_token) {
-      cookieStore.set('jira_refresh_token', tokenData.refresh_token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 15897600, // standard 6 months
-        path: '/',
-      });
-    }
-
-    // Capture the first accessible cloudId site as the default target
+    let cloudId: string | undefined = undefined;
     if (sites && sites.length > 0) {
-      cookieStore.set('jira_cloud_id', sites[0].id, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 15897600, // standard 6 months
-        path: '/',
-      });
+      cloudId = sites[0].id;
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Atlassian Jira authentication completed successfully.',
-      sitesCount: sites.length,
-      defaultSite: sites[0]?.name || 'None',
-      scope: tokenData.scope,
+    // 4. Encrypt access & refresh tokens
+    const encryptedAccessToken = encrypt(tokenData.access_token);
+    const encryptedRefreshToken = tokenData.refresh_token ? encrypt(tokenData.refresh_token) : undefined;
+    const expiresAt = tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1000) : undefined;
+
+    // 5. Persist integration credentials to database
+    await saveIntegration({
+      userId,
+      platform: 'jira',
+      encryptedAccessToken,
+      encryptedRefreshToken,
+      expiresAt,
+      cloudId,
+      authType: 'oauth',
     });
-  } catch (error) {
+
+    // 6. Redirect browser back to the frontend project page or default settings
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const redirectTarget = projectId
+      ? `${baseUrl}/projects/${projectId}?sync=jira-success`
+      : `${baseUrl}/settings?sync=jira-success`;
+
+    return NextResponse.redirect(redirectTarget);
+  } catch (error: any) {
     console.error('Jira authorization callback failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal Server Error' },
+      { error: error.message || 'Internal Server Error' },
       { status: 500 }
     );
   }
 }
+
