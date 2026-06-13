@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { useState, FormEvent } from 'react';
+import React, { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import { userApi } from '@/lib/api';
 
@@ -10,6 +10,22 @@ interface FormErrors {
   general?: string;
 }
 
+function GithubIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2A10 10 0 002 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0012 2z" />
+    </svg>
+  );
+}
+
+function JiraIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M11.53 2C6.81 2 3 5.81 3 10.53c0 3.12 1.66 5.85 4.14 7.37L5.3 22h3.58l1.4-3.13c.41.05.82.08 1.25.08 4.72 0 8.53-3.81 8.53-8.53C20.06 5.81 16.25 2 11.53 2z"/>
+    </svg>
+  );
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,6 +33,34 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      const refreshToken = params.get('refreshToken');
+      const userId = params.get('userId');
+      const emailParam = params.get('email');
+      const errorMsg = params.get('error');
+
+      if (errorMsg) {
+        setErrors({ general: decodeURIComponent(errorMsg) });
+      }
+
+      if (token && userId && emailParam) {
+        localStorage.setItem('accessToken', token);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
+        localStorage.setItem('userId', userId);
+        localStorage.setItem('userEmail', emailParam);
+        setSuccess(true);
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1000);
+      }
+    }
+  }, []);
 
   function validateForm(): boolean {
     const newErrors: FormErrors = {};
@@ -247,6 +291,30 @@ export default function LoginPage() {
                 )}
               </button>
             </form>
+
+            {/* OAuth Divider */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-border-subtle"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-bg-surface px-2 text-text-tertiary font-semibold tracking-wider">
+                  Or continue with
+                </span>
+              </div>
+            </div>
+
+            {/* OAuth Buttons */}
+            <div className="grid grid-cols-1 gap-3">
+              <a
+                href="/api/auth/jira/login"
+                id="jira-login-btn"
+                className="flex items-center justify-center gap-3 w-full px-4 py-3 border border-border-subtle rounded-xl bg-bg-elevated/40 hover:bg-bg-elevated/80 active:bg-bg-elevated text-text-primary text-sm font-semibold transition-all shadow-sm hover:border-[#0052CC]/50 hover:shadow-[0_0_15px_rgba(0,82,204,0.15)] group cursor-pointer"
+              >
+                <JiraIcon className="w-5 h-5 text-[#0052CC] group-hover:scale-105 transition-transform" />
+                <span>Sign in with Jira</span>
+              </a>
+            </div>
 
             {/* Divider */}
             <div className="mt-8 pt-6 border-t border-border-subtle text-center">

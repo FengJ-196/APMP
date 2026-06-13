@@ -3,6 +3,8 @@ import { OAuthService } from '../lib/github/OAuthService';
 import { ExportService } from '../lib/github/ExportService';
 import WBSItemModel from '../lib/models/WBSItem';
 import { StoryPoint, ExternalSync } from '../lib/models/Estimation';
+import { getIntegration, saveIntegration } from '../lib/models/UserIntegration';
+import { encrypt } from '../lib/utils/encryption';
 
 // 1. Mock the db connection to resolve instantly
 vi.mock('@/lib/db', () => ({
@@ -32,6 +34,13 @@ vi.mock('../lib/models/Estimation', () => {
     ExternalSync: {
       findOneAndUpdate: vi.fn(),
     },
+  };
+});
+
+vi.mock('../lib/models/UserIntegration', () => {
+  return {
+    getIntegration: vi.fn(),
+    saveIntegration: vi.fn(),
   };
 });
 
@@ -117,7 +126,7 @@ describe('GitHub Integration Services', () => {
         finalPoints: 5,
         rationale: 'Medium complexity database work.',
       };
-
+ 
       const markdown = ExportService.formatWBSItemToMarkdown(wbsItem, storyPoint);
 
       expect(markdown).toContain('**Story Points**: `5`');
@@ -130,6 +139,7 @@ describe('GitHub Integration Services', () => {
       // 1. Mock WBSItem lookup
       const mockWbsItemId = '653df39df30dfa209fd134b2';
       const mockProjectId = '653df39df30dfa209fd134b0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
       const mockWbsItem = {
         _id: mockWbsItemId,
         projectId: mockProjectId,
@@ -160,6 +170,15 @@ describe('GitHub Integration Services', () => {
       };
       vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue(mockSyncDoc as any);
 
+      // Mock user integration
+      const encryptedAccessToken = encrypt('mock-access-token');
+      vi.mocked(getIntegration).mockResolvedValue({
+        userId: mockUserId,
+        platform: 'github',
+        encryptedAccessToken,
+        authType: 'oauth',
+      } as any);
+
       // 4. Spy on fetch to return a successful mock response
       const mockIssueNumber = 42;
       const mockIssueUrl = 'https://github.com/test-owner/test-repo/issues/42';
@@ -182,7 +201,7 @@ describe('GitHub Integration Services', () => {
         mockWbsItemId,
         'test-owner',
         'test-repo',
-        'mock-access-token'
+        mockUserId
       );
 
       // 6. Verify WBSItem findById called with correct id
@@ -220,6 +239,7 @@ describe('GitHub Integration Services', () => {
       // 1. Mock WBSItem and StoryPoint lookups
       const mockWbsItemId = '653df39df30dfa209fd134b2';
       const mockProjectId = '653df39df30dfa209fd134b0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
       const mockWbsItem = {
         _id: mockWbsItemId,
         projectId: mockProjectId,
@@ -233,6 +253,15 @@ describe('GitHub Integration Services', () => {
 
       // 2. Mock ExternalSync DB update for failure
       vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue({} as any);
+
+      // Mock user integration
+      const encryptedAccessToken = encrypt('mock-invalid-token');
+      vi.mocked(getIntegration).mockResolvedValue({
+        userId: mockUserId,
+        platform: 'github',
+        encryptedAccessToken,
+        authType: 'oauth',
+      } as any);
 
       // 3. Mock fetch to return a failure status
       const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async () => {
@@ -249,7 +278,7 @@ describe('GitHub Integration Services', () => {
           mockWbsItemId,
           'test-owner',
           'test-repo',
-          'mock-invalid-token'
+          mockUserId
         )
       ).rejects.toThrow('GitHub API returned 403');
 
@@ -269,5 +298,97 @@ describe('GitHub Integration Services', () => {
 
       fetchSpy.mockRestore();
     });
+
+    it('should automatically refresh token and retry on 401 Unauthorized', async () => {
+      const mockWbsItemId = '653df39df30dfa209fd134b2';
+      const mockProjectId = '653df39df30dfa209fd134b0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
+      
+      const mockWbsItem = {
+        _id: mockWbsItemId,
+        projectId: mockProjectId,
+        title: 'Test GitHub Token Refresh',
+        description: 'Verify auto refresh works.',
+        type: 'task',
+        status: 'approved',
+      };
+      vi.spyOn(WBSItemModel, 'findById').mockResolvedValue(mockWbsItem as any);
+      vi.spyOn(StoryPoint, 'findOne').mockResolvedValue(null);
+
+      // Return a mock integration with a refresh token
+      const oldEncryptedAccessToken = encrypt('expired-token');
+      const encryptedRefreshToken = encrypt('valid-refresh-token');
+      vi.mocked(getIntegration).mockResolvedValue({
+        userId: mockUserId,
+        platform: 'github',
+        encryptedAccessToken: oldEncryptedAccessToken,
+        encryptedRefreshToken,
+        authType: 'oauth',
+      } as any);
+
+      // Spy on saveIntegration to verify it saves the new tokens
+      vi.mocked(saveIntegration).mockResolvedValue({} as any);
+
+      // Mock OAuthService.refreshToken
+      const refreshSpy = vi.spyOn(OAuthService, 'refreshToken').mockResolvedValue({
+        access_token: 'new-refreshed-token',
+        refresh_token: 'new-refresh-token',
+        expires_in: 3600,
+        token_type: 'Bearer',
+        scope: 'repo',
+      });
+
+      // Mock fetch: 1st call returns 401, 2nd call (retry) returns 201 (success)
+      let callCount = 0;
+      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ok: false,
+            status: 401,
+            text: async () => 'Unauthorized',
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: 999,
+            number: 43,
+            html_url: 'https://github.com/test-owner/test-repo/issues/43',
+          }),
+        } as Response;
+      });
+
+      vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue({} as any);
+
+      await ExportService.exportWBSItemToGitHub(
+        mockWbsItemId,
+        'test-owner',
+        'test-repo',
+        mockUserId
+      );
+
+      // Verify OAuthService.refreshToken was called
+      expect(refreshSpy).toHaveBeenCalledWith('valid-refresh-token');
+
+      // Verify new integration was stored
+      expect(saveIntegration).toHaveBeenCalledWith(expect.objectContaining({
+        userId: mockUserId,
+        platform: 'github',
+        encryptedAccessToken: expect.any(String),
+        encryptedRefreshToken: expect.any(String),
+      }));
+
+      // Verify fetch was called twice (initial 401, then retry with new token)
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const secondCalloptions = fetchSpy.mock.calls[1][1] as RequestInit;
+      const headers = secondCalloptions.headers as Record<string, string>;
+      expect(headers['Authorization']).toBe('Bearer new-refreshed-token');
+
+      fetchSpy.mockRestore();
+      refreshSpy.mockRestore();
+    });
   });
 });
+

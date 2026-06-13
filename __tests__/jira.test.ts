@@ -4,6 +4,8 @@ import { ADFConverter } from '../lib/jira/ADFConverter';
 import { ExportService } from '../lib/jira/ExportService';
 import WBSItemModel from '../lib/models/WBSItem';
 import { StoryPoint, ExternalSync } from '../lib/models/Estimation';
+import { getIntegration, saveIntegration } from '../lib/models/UserIntegration';
+import { encrypt } from '../lib/utils/encryption';
 
 // 1. Mock the db connection to resolve instantly
 vi.mock('@/lib/db', () => ({
@@ -27,6 +29,13 @@ vi.mock('../lib/models/Estimation', () => {
     ExternalSync: {
       findOneAndUpdate: vi.fn(),
     },
+  };
+});
+
+vi.mock('../lib/models/UserIntegration', () => {
+  return {
+    getIntegration: vi.fn(),
+    saveIntegration: vi.fn(),
   };
 });
 
@@ -133,6 +142,7 @@ describe('Jira Integration Services', () => {
     it('should create synced ExternalSync documents upon a mock successful Jira API call', async () => {
       const mockWbsItemId = '653df39df30dfa209fd134c3';
       const mockProjectId = '653df39df30dfa209fd134c0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
       const mockWbsItem = {
         _id: mockWbsItemId,
         projectId: mockProjectId,
@@ -153,6 +163,16 @@ describe('Jira Integration Services', () => {
         externalUrl: 'https://acme.atlassian.net/browse/PROJ-101',
       };
       vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue(mockSyncDoc as any);
+
+      // Mock user integration
+      const encryptedAccessToken = encrypt('mock-atlassian-token');
+      vi.mocked(getIntegration).mockResolvedValue({
+        userId: mockUserId,
+        platform: 'jira',
+        encryptedAccessToken,
+        cloudId: 'mock-cloud-id',
+        authType: 'oauth',
+      } as any);
 
       // Spy on fetch:
       // First call: Issue creation POST
@@ -187,10 +207,9 @@ describe('Jira Integration Services', () => {
 
       const syncDoc = await ExportService.exportWBSItemToJira(
         mockWbsItemId,
-        'mock-cloud-id',
         'PROJ',
         'Task',
-        'mock-atlassian-token'
+        mockUserId
       );
 
       expect(WBSItemModel.findById).toHaveBeenCalledWith(mockWbsItemId);
@@ -227,6 +246,7 @@ describe('Jira Integration Services', () => {
     it('should log a failed sync state in the DB if the Atlassian endpoint errors out', async () => {
       const mockWbsItemId = '653df39df30dfa209fd134c3';
       const mockProjectId = '653df39df30dfa209fd134c0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
       const mockWbsItem = {
         _id: mockWbsItemId,
         projectId: mockProjectId,
@@ -238,6 +258,16 @@ describe('Jira Integration Services', () => {
       vi.spyOn(WBSItemModel, 'findById').mockResolvedValue(mockWbsItem as any);
       vi.spyOn(StoryPoint, 'findOne').mockResolvedValue(null);
       vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue({} as any);
+
+      // Mock user integration
+      const encryptedAccessToken = encrypt('mock-bad-token');
+      vi.mocked(getIntegration).mockResolvedValue({
+        userId: mockUserId,
+        platform: 'jira',
+        encryptedAccessToken,
+        cloudId: 'mock-cloud-id',
+        authType: 'oauth',
+      } as any);
 
       // Mock fetch return rate limit error
       const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async () => {
@@ -251,10 +281,9 @@ describe('Jira Integration Services', () => {
       await expect(
         ExportService.exportWBSItemToJira(
           mockWbsItemId,
-          'mock-cloud-id',
           'PROJ',
           'Task',
-          'mock-bad-token'
+          mockUserId
         )
       ).rejects.toThrow('Jira API returned 429');
 
@@ -278,6 +307,7 @@ describe('Jira Integration Services', () => {
     it('should export successfully using Basic Authentication when email and domain are provided', async () => {
       const mockWbsItemId = '653df39df30dfa209fd134c3';
       const mockProjectId = '653df39df30dfa209fd134c0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
       const mockWbsItem = {
         _id: mockWbsItemId,
         projectId: mockProjectId,
@@ -298,6 +328,9 @@ describe('Jira Integration Services', () => {
       };
       vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue(mockSyncDoc as any);
 
+      // Mock getIntegration to return undefined so we fallback to basic credentials
+      vi.mocked(getIntegration).mockResolvedValue(undefined);
+
       const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
         ok: true,
         status: 201,
@@ -309,12 +342,14 @@ describe('Jira Integration Services', () => {
 
       const syncDoc = await ExportService.exportWBSItemToJira(
         mockWbsItemId,
-        '', // cloudIdOrDomain empty since we pass domain explicitly
         'PROJ',
         'Task',
-        'my-api-token',
-        'test@example.com',
-        'my-site.atlassian.net'
+        mockUserId,
+        {
+          apiToken: 'my-api-token',
+          email: 'test@example.com',
+          domain: 'my-site.atlassian.net'
+        }
       );
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -343,5 +378,113 @@ describe('Jira Integration Services', () => {
       expect(syncDoc).toEqual(mockSyncDoc);
       fetchSpy.mockRestore();
     });
+
+    it('should automatically refresh Jira token and retry on 401 Unauthorized', async () => {
+      const mockWbsItemId = '653df39df30dfa209fd134c3';
+      const mockProjectId = '653df39df30dfa209fd134b0';
+      const mockUserId = '645a1b2c3d4e5f6a7b8c9d0e';
+      
+      const mockWbsItem = {
+        _id: mockWbsItemId,
+        projectId: mockProjectId,
+        title: 'Mock Export Jira Token Refresh',
+        type: 'task',
+        status: 'approved',
+      };
+
+      vi.spyOn(WBSItemModel, 'findById').mockResolvedValue(mockWbsItem as any);
+      vi.spyOn(StoryPoint, 'findOne').mockResolvedValue(null);
+
+      // Return a mock integration with a refresh token
+      const oldEncryptedAccessToken = encrypt('expired-jira-token');
+      const encryptedRefreshToken = encrypt('valid-jira-refresh-token');
+      vi.mocked(getIntegration).mockResolvedValue({
+        userId: mockUserId,
+        platform: 'jira',
+        encryptedAccessToken: oldEncryptedAccessToken,
+        encryptedRefreshToken,
+        cloudId: 'mock-cloud-id',
+        authType: 'oauth',
+      } as any);
+
+      // Spy on saveIntegration to verify it saves the new tokens
+      vi.mocked(saveIntegration).mockResolvedValue({} as any);
+
+      // Mock OAuthService.refreshToken
+      const refreshSpy = vi.spyOn(OAuthService, 'refreshToken').mockResolvedValue({
+        access_token: 'new-refreshed-jira-token',
+        refresh_token: 'new-refresh-jira-token',
+        expires_in: 3600,
+        token_type: 'Bearer',
+        scope: 'read:jira-work',
+      });
+
+      // Mock fetch:
+      // 1st call (issue creation): 401 Unauthorized
+      // 2nd call (issue creation retry): 201 Created
+      // 3rd call (accessible resources): 200 OK
+      let callCount = 0;
+      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+        const urlStr = String(url);
+        if (urlStr.includes('/accessible-resources')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                id: 'mock-cloud-id',
+                name: 'Acme Jira',
+                url: 'https://acme.atlassian.net',
+              }
+            ],
+          } as Response;
+        }
+
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ok: false,
+            status: 401,
+            text: async () => 'Unauthorized',
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            id: '10042',
+            key: 'PROJ-101',
+          }),
+        } as Response;
+      });
+
+      vi.spyOn(ExternalSync, 'findOneAndUpdate').mockResolvedValue({} as any);
+
+      await ExportService.exportWBSItemToJira(
+        mockWbsItemId,
+        'PROJ',
+        'Task',
+        mockUserId
+      );
+
+      // Verify OAuthService.refreshToken was called
+      expect(refreshSpy).toHaveBeenCalledWith('valid-jira-refresh-token');
+
+      // Verify new integration was stored
+      expect(saveIntegration).toHaveBeenCalledWith(expect.objectContaining({
+        userId: mockUserId,
+        platform: 'jira',
+        encryptedAccessToken: expect.any(String),
+        encryptedRefreshToken: expect.any(String),
+      }));
+
+      // Verify fetch was called 3 times (1st issue call -> 401, refresh, 2nd issue retry call -> 201, 3rd accessible resources call -> 200)
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+      fetchSpy.mockRestore();
+      refreshSpy.mockRestore();
+    });
   });
 });
+

@@ -503,7 +503,7 @@ describe('WBS Configuration Unit & Integration Tests (Mocked DB)', () => {
       };
 
       const aiService = AIService.getInstance();
-      aiService.setProvider(mockProvider);
+      aiService.setProvider(mockProvider as any);
 
       const sourceOfTruth = '# Requirements';
       const config = {

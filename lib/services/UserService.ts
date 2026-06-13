@@ -60,6 +60,14 @@ export class UserService {
     return jwt.sign(payload, REFRESH_TOKEN_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
   }
 
+  static generateTokens(payload: { id: string; email: string }): AuthTokens {
+    const tokenPayload: TokenPayload = { userId: payload.id, email: payload.email };
+    return {
+      accessToken: this.generateAccessToken(tokenPayload),
+      refreshToken: this.generateRefreshToken(tokenPayload),
+    };
+  }
+
   static verifyAccessToken(token: string): TokenPayload | null {
     try {
       const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET) as TokenPayload;

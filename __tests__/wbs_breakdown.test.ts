@@ -48,22 +48,27 @@ vi.mock('../lib/models/WBSItem', async (importOriginal) => {
       }),
       deleteMany: vi.fn(async (query: any) => {
         const initialLength = inMemoryWBSItems.length;
-        if (query.parentId) {
+        if (query.projectId) {
+          inMemoryWBSItems = inMemoryWBSItems.filter(
+            item => item.projectId.toString() !== query.projectId.toString()
+          );
+        } else if (query.parentId) {
           inMemoryWBSItems = inMemoryWBSItems.filter(
             item => !(item.parentId?.toString() === query.parentId.toString() && item.type === query.type)
           );
         }
         return { deletedCount: initialLength - inMemoryWBSItems.length };
       }),
-      create: vi.fn(async (docs: any[]) => {
-        const created = docs.map(doc => ({
+      create: vi.fn(async (docs: any | any[]) => {
+        const docsArray = Array.isArray(docs) ? docs : [docs];
+        const created = docsArray.map(doc => ({
           _id: new mongoose.Types.ObjectId(),
           ...doc,
           createdAt: new Date(),
           updatedAt: new Date(),
         }));
         inMemoryWBSItems.push(...created);
-        return created;
+        return Array.isArray(docs) ? created : created[0];
       }),
     },
   };
@@ -77,6 +82,25 @@ vi.mock('../lib/models/Estimation', () => ({
     findOneAndUpdate: vi.fn().mockResolvedValue({ syncStatus: 'synced' }),
   },
 }));
+
+vi.mock('../lib/models/UserIntegration', () => {
+  return {
+    getIntegration: vi.fn().mockImplementation(() => {
+      const crypto = require('crypto');
+      const text = 'mock-access-token';
+      const key = crypto.scryptSync('apmp-temp-default-secret-key-32c', 'apmp-salt', 32);
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+      let encrypted = cipher.update(text, 'utf8', 'hex');
+      encrypted += cipher.final('hex');
+      const authTag = cipher.getAuthTag().toString('hex');
+      const encryptedAccessToken = `${iv.toString('hex')}:${authTag}:${encrypted}`;
+      return {
+        encryptedAccessToken,
+      };
+    }),
+  };
+});
 
 // 4. Mock the service layer dependencies
 vi.mock('../lib/services/WBSConfigService', () => ({
@@ -99,6 +123,7 @@ vi.mock('../lib/services/SourceOfTruthService', () => ({
 vi.mock('../lib/ai', () => {
   const mockAIServiceInstance = {
     generateDeveloperSubtasks: vi.fn(),
+    generateWBS: vi.fn(),
   };
   return {
     AIService: {
@@ -128,6 +153,7 @@ describe('Developer Subtask Breakdown & GitHub Export Integration', () => {
     inMemoryWBSItems.push({
       _id: new mongoose.Types.ObjectId(taskId),
       projectId: new mongoose.Types.ObjectId(projectId),
+      userId: new mongoose.Types.ObjectId(),
       title: 'Implement OAuth callback handler',
       description: 'Exchange temporary code for JWT token.',
       type: 'task',
