@@ -286,4 +286,42 @@ export class WBSItemService {
 
     return this.getWBSItemsByProjectId(projectId);
   }
+
+  /**
+   * Deletes a specific WBS item and recursively deletes its children.
+   */
+  static async deleteWBSItem(itemId: string): Promise<boolean> {
+    if (!itemId || !mongoose.Types.ObjectId.isValid(itemId)) {
+      throw new Error('Valid WBS Item ID is required');
+    }
+    await dbConnect();
+
+    const item = await WBSItemModel.findById(itemId);
+    if (!item) return false;
+
+    // Recursive deletion helper
+    const deleteRecursive = async (id: mongoose.Types.ObjectId) => {
+      const children = await WBSItemModel.find({ parentId: id });
+      for (const child of children) {
+        await deleteRecursive(child._id as mongoose.Types.ObjectId);
+      }
+      await WBSItemModel.deleteMany({ parentId: id });
+    };
+
+    await deleteRecursive(item._id as mongoose.Types.ObjectId);
+    await WBSItemModel.deleteOne({ _id: item._id });
+    return true;
+  }
+
+  /**
+   * Deletes all WBS items for a specific project.
+   */
+  static async deleteAllWBSItemsForProject(projectId: string): Promise<boolean> {
+    if (!projectId || !mongoose.Types.ObjectId.isValid(projectId)) {
+      throw new Error('Valid Project ID is required');
+    }
+    await dbConnect();
+    const result = await WBSItemModel.deleteMany({ projectId });
+    return result.deletedCount > 0;
+  }
 }

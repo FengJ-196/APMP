@@ -96,3 +96,21 @@ export async function POST(
     );
   }
 }
+
+// DELETE: Delete all WBS items for a specific project
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const deleted = await WBSItemService.deleteAllWBSItemsForProject(id);
+    return NextResponse.json({ success: deleted }, { status: 200 });
+  } catch (error: any) {
+    console.error('Delete WBS Items API error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to delete WBS items' },
+      { status: 500 }
+    );
+  }
+}

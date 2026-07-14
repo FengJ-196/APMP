@@ -4,6 +4,105 @@ import { AIService } from '@/lib/ai';
 import dbConnect from '@/lib/db';
 import ConflictModel from '@/lib/models/Conflict';
 
+function parseIncompleteJSONArray(text: string): any[] {
+  const results: any[] = [];
+  const startIdx = text.indexOf('[');
+  if (startIdx === -1) return [];
+  
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let currentObjectStart = -1;
+  
+  for (let i = startIdx + 1; i < text.length; i++) {
+    const char = text[i];
+    
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (!inString) {
+      if (char === '{') {
+        if (depth === 0) {
+          currentObjectStart = i;
+        }
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0 && currentObjectStart !== -1) {
+          const objStr = text.substring(currentObjectStart, i + 1);
+          try {
+            const parsedObj = JSON.parse(objStr);
+            results.push(parsedObj);
+          } catch (e) {
+            // Ignore incomplete or invalid objects
+          }
+          currentObjectStart = -1;
+        }
+      }
+    }
+  }
+  
+  return results;
+}
+
+function cleanUnescapedQuotes(jsonStr: string): string {
+  let result = '';
+  let inString = false;
+  
+  for (let i = 0; i < jsonStr.length; i++) {
+    const char = jsonStr[i];
+    
+    if (char === '\\') {
+      result += char;
+      if (i + 1 < jsonStr.length) {
+        result += jsonStr[i + 1];
+        i++;
+      }
+      continue;
+    }
+    
+    if (char === '"') {
+      if (!inString) {
+        inString = true;
+        result += char;
+      } else {
+        // Look ahead to check if this quote is structural
+        let nextNonWhitespace = '';
+        for (let j = i + 1; j < jsonStr.length; j++) {
+          if (!/\s/.test(jsonStr[j])) {
+            nextNonWhitespace = jsonStr[j];
+            break;
+          }
+        }
+        
+        const isStructural = [',', '}', ']', ':'].includes(nextNonWhitespace);
+        if (isStructural) {
+          inString = false;
+          result += char;
+        } else {
+          result += '\\"';
+        }
+      }
+    } else {
+      result += char;
+    }
+  }
+  
+  return result;
+}
+
 export const dynamic = 'force-dynamic';
 
 // GET: Retrieve all unresolved conflicts saved for a project
@@ -55,8 +154,19 @@ export async function POST(
       );
     }
 
-    // Diagrams are not automatically appended; the user appends them to the Source of Truth manually if they permit.
-    const diagrams: any[] = [];
+    // Extract mermaid diagrams dynamically from the Source of Truth content
+    const diagrams: Array<{ id: string; mermaid: string; caption: string }> = [];
+    const mermaidRegex = /```mermaid\s*\n([\s\S]*?)\n```/g;
+    let match;
+    let index = 1;
+    while ((match = mermaidRegex.exec(sourceOfTruth.content)) !== null) {
+      diagrams.push({
+        id: `DIAGRAM-${index}`,
+        mermaid: match[1].trim(),
+        caption: `Extracted Diagram #${index}`
+      });
+      index++;
+    }
 
     // 2. Run logical analysis with streaming response
     const aiService = AIService.getInstance();
@@ -77,7 +187,18 @@ export async function POST(
           if (fullOutputText.trim()) {
             try {
               const cleanJson = fullOutputText.replace(/```json|```/g, "").trim();
-              const parsed = JSON.parse(cleanJson);
+              const sanitizedJson = cleanUnescapedQuotes(cleanJson);
+              let parsed;
+              try {
+                parsed = JSON.parse(sanitizedJson);
+              } catch (initialParseErr) {
+                const extracted = parseIncompleteJSONArray(sanitizedJson);
+                if (extracted.length > 0) {
+                  parsed = extracted;
+                } else {
+                  throw initialParseErr;
+                }
+              }
               if (Array.isArray(parsed)) {
                 await dbConnect();
                 

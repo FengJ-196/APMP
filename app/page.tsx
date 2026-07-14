@@ -21,7 +21,7 @@ export default function Home() {
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     const storedUserId = localStorage.getItem('userId');
-    
+
     if (!token) {
       router.push('/login');
       return;
@@ -110,43 +110,6 @@ export default function Home() {
                 </Link>
               </div>
             )}
-          </div>
-
-          {/* Sidebar Area: Stats & Quick Actions */}
-          <div className="space-y-6">
-            <h2 className="text-xl font-bold text-text-primary">System Overview</h2>
-            
-            <div className="bg-bg-surface border border-border-subtle p-6 rounded-2xl space-y-6 animate-fade-in-up-delay-1">
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 rounded-lg bg-bg-elevated/50">
-                  <div className="flex items-center gap-3">
-                    <BarChart3 className="w-4 h-4 text-accent-primary" />
-                    <span className="text-text-secondary text-sm">Task Completion</span>
-                  </div>
-                  <span className="text-text-primary font-bold">84%</span>
-                </div>
-                <div className="flex justify-between items-center p-3 rounded-lg bg-bg-elevated/50">
-                  <div className="flex items-center gap-3">
-                    <Settings className="w-4 h-4 text-accent-primary" />
-                    <span className="text-text-secondary text-sm">AI Efficiency</span>
-                  </div>
-                  <span className="text-text-primary font-bold">1.2s</span>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-border-subtle">
-                <p className="text-xs text-text-tertiary leading-relaxed">
-                  Your workspace is synchronized with the latest AI analysis models. Uploading new sources will trigger automatic conflict detection.
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-accent-primary/10 to-transparent border border-accent-primary/20 p-6 rounded-2xl animate-fade-in-up-delay-2">
-              <h4 className="text-accent-primary font-bold mb-2">Pro Tip</h4>
-              <p className="text-sm text-text-secondary">
-                You can upload `.md` files directly for the best AI parsing results.
-              </p>
-            </div>
           </div>
         </div>
       </div>

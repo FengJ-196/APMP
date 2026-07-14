@@ -44,8 +44,7 @@ export class OAuthService {
     const redirectUri = this.getRedirectUri();
     
     // read:jira-work and write:jira-work are the primary scopes for managing tasks
-    // offline_access is essential to receive a refresh token for background refreshes
-    const scopes = ['read:jira-work', 'write:jira-work', 'offline_access'];
+    const scopes = ['read:jira-work', 'write:jira-work'];
     
     const params = new URLSearchParams({
       audience: 'api.atlassian.com',

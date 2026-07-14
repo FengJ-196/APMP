@@ -170,10 +170,31 @@ export class ExportService {
           }
         }
 
-        if (!response.ok) {
-          const errorBody = await response.text();
-          throw new Error(`GitHub API returned ${response.status}: ${errorBody}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          try {
+            const repoCheck = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+              headers: {
+                'Accept': 'application/vnd.github+json',
+                'Authorization': `Bearer ${accessToken}`,
+                'User-Agent': 'APMP-App',
+              }
+            });
+            if (repoCheck.ok) {
+              const repoData = await repoCheck.json();
+              if (repoData.has_issues === false) {
+                throw new Error(`Issues are disabled for repository '${owner}/${repo}'. Please enable 'Issues' in your GitHub repository Settings -> Features.`);
+              }
+            } else if (repoCheck.status === 404) {
+              throw new Error(`Repository '${owner}/${repo}' not found, or your token lacks permission to view it. Please disconnect and reconnect your GitHub integration in the Integrations panel to grant write access.`);
+            }
+          } catch (diagErr: any) {
+            throw diagErr;
+          }
         }
+        const errorBody = await response.text();
+        throw new Error(`GitHub API returned ${response.status}: ${errorBody}`);
+      }
       }
 
       const issueData = (await response.json()) as GitHubIssueResponse;
@@ -191,7 +212,7 @@ export class ExportService {
           errorMessage: undefined,
           lastSyncedAt: new Date(),
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
 
       return syncDoc;
@@ -211,7 +232,7 @@ export class ExportService {
             errorMessage: errMsg,
             lastSyncedAt: new Date(),
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         );
       } catch (dbError) {
         console.error('Failed to log sync failure in database:', dbError);

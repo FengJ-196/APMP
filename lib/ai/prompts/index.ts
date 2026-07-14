@@ -58,6 +58,11 @@ OUTPUT FORMAT (JSON ARRAY ONLY):
   }
 ]
 
+CRITICAL STRING ESCAPING RULES:
+1. Any double quotes (") inside JSON string values (such as description, textSnippets, llmExplanation, suggestedFix) MUST be strictly escaped as \\" to prevent JSON parsing errors.
+2. Prefer using single quotes (') or curly quotes (“ ”) when quoting terms inside description or explanation fields to avoid JSON formatting issues.
+3. Do not include markdown code block formatting in the response unless wrapped inside the JSON structure properly.
+
 If no conflicts exist, return [].`;
 
 /**
@@ -76,6 +81,10 @@ export function buildWBSBreakdownPrompt(sourceOfTruth: string, config: any): str
   
   const expectedDuration = config.timeline?.expectedDurationMonths ? `${config.timeline.expectedDurationMonths} months` : 'Not specified';
   const sprintLength = config.timeline?.sprintLengthWeeks ? `${config.timeline.sprintLengthWeeks}-week sprints` : 'Not specified';
+
+  const customInstructionsStr = config.customPromptInstructions?.trim()
+    ? `\n### 6. Custom Prompt Instructions & Rules:\n*   **CRITICAL CONSTRAINT**: ${config.customPromptInstructions.trim()}\n`
+    : '';
 
   return `You are a Principal Software Architect and seasoned Agile Project Manager. Your task is to analyze the provided Source of Truth (system requirements specification) and decompose it into a highly accurate, 4-level Work Breakdown Structure (WBS).
 
@@ -114,7 +123,7 @@ You must tailor the generated tasks and acceptance criteria to the following tec
 *   **Timeline Duration**: ${expectedDuration}
 *   **Sprint Cycles**: ${sprintLength}
 *   *Task Slicing Rule*: Budget and prioritize tasks so that they correspond to logical development blocks that can fit into the designated sprint cycles.
-
+${customInstructionsStr}
 ---
 ## SOURCE OF TRUTH (REQUIREMENTS SPECIFICATION):
 ${sourceOfTruth}

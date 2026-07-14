@@ -17,6 +17,7 @@ export interface IWBSConfig extends Document {
     expectedDurationMonths?: number;
     sprintLengthWeeks?: number;
   };
+  customPromptInstructions?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,11 @@ const WBSConfigSchema = new Schema<IWBSConfig>({
     expectedDurationMonths: { type: Number },
     sprintLengthWeeks: { type: Number },
   },
+  customPromptInstructions: {
+    type: String,
+    maxlength: 2000,
+    default: '',
+  },
 }, { timestamps: true });
 
 // Force model reload in dev to avoid schema cache conflicts
@@ -73,6 +79,7 @@ export function mapToWBSConfigDTO(doc: IWBSConfig): WBSConfigDTO {
       expectedDurationMonths: doc.timeline?.expectedDurationMonths,
       sprintLengthWeeks: doc.timeline?.sprintLengthWeeks,
     },
+    customPromptInstructions: doc.customPromptInstructions ?? '',
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -104,6 +111,7 @@ export async function saveWBSConfig(
       compliance: input.compliance,
       integrations: input.integrations,
       timeline: input.timeline,
+      customPromptInstructions: input.customPromptInstructions ?? '',
     },
     { upsert: true, new: true }
   );

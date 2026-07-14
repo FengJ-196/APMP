@@ -22,7 +22,6 @@ import {
   Check
 } from 'lucide-react';
 import { filesApi, sourceOfTruthApi } from '@/lib/api';
-import Navbar from '@/components/Navbar';
 import Link from 'next/link';
 
 interface FileMetadata {
@@ -269,40 +268,34 @@ export default function FilePreviewPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-bg-base">
-        <Navbar />
-        <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] gap-4">
-          <Loader2 className="w-10 h-10 text-accent-primary animate-spin" />
-          <p className="text-text-secondary animate-pulse">Loading file preview...</p>
-        </div>
+      <div className="h-[calc(100vh-64px)] bg-bg-base flex flex-col items-center justify-center gap-4">
+        <Loader2 className="w-10 h-10 text-accent-primary animate-spin" />
+        <p className="text-text-secondary animate-pulse">Loading file preview...</p>
       </div>
     );
   }
 
   if (error || !file) {
     return (
-      <div className="min-h-screen bg-bg-base">
-        <Navbar />
-        <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] gap-6 px-4 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-status-error-glow flex items-center justify-center text-status-error">
-            <AlertCircle className="w-8 h-8" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary mb-2">Error Loading File</h1>
-            <p className="text-text-tertiary max-w-md">{error || 'The file you are looking for does not exist or you do not have permission to view it.'}</p>
-            {error && (
-              <div className="mt-4 p-3 bg-bg-surface border border-border-subtle rounded-lg text-xs font-mono text-text-secondary text-left overflow-auto max-w-md">
-                Error Details: {error}
-              </div>
-            )}
-          </div>
-          <button 
-            onClick={() => router.back()}
-            className="flex items-center gap-2 px-6 py-2 bg-bg-surface border border-border-subtle rounded-xl text-text-primary hover:bg-bg-elevated transition-all"
-          >
-            <ArrowLeft className="w-4 h-4" /> Go Back
-          </button>
+      <div className="h-[calc(100vh-64px)] bg-bg-base flex flex-col items-center justify-center gap-6 px-4 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-status-error-glow flex items-center justify-center text-status-error">
+          <AlertCircle className="w-8 h-8" />
         </div>
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary mb-2">Error Loading File</h1>
+          <p className="text-text-tertiary max-w-md">{error || 'The file you are looking for does not exist or you do not have permission to view it.'}</p>
+          {error && (
+            <div className="mt-4 p-3 bg-bg-surface border border-border-subtle rounded-lg text-xs font-mono text-text-secondary text-left overflow-auto max-w-md">
+              Error Details: {error}
+            </div>
+          )}
+        </div>
+        <button 
+          onClick={() => router.back()}
+          className="flex items-center gap-2 px-6 py-2 bg-bg-surface border border-border-subtle rounded-xl text-text-primary hover:bg-bg-elevated transition-all"
+        >
+          <ArrowLeft className="w-4 h-4" /> Go Back
+        </button>
       </div>
     );
   }
@@ -316,9 +309,7 @@ export default function FilePreviewPage() {
     file.originalName.endsWith('.txt');
 
   return (
-    <div className="h-screen bg-bg-base flex flex-col overflow-hidden">
-      <Navbar />
-      <div className="h-16 flex-shrink-0" /> {/* Spacer for fixed Navbar */}
+    <div className="h-[calc(100vh-64px)] bg-bg-base flex flex-col overflow-hidden">
       
       {/* Top Header/Toolbar */}
       <div className="bg-bg-surface border-b border-border-subtle transition-all">
@@ -502,7 +493,7 @@ export default function FilePreviewPage() {
             </div>
           )}
 
-          <div className="flex-1 w-full bg-bg-base">
+          <div className="flex-1 w-full bg-bg-base flex flex-col min-h-0">
             {isCompareMode ? (
               <div className="h-full flex flex-col md:flex-row gap-6 p-6 overflow-hidden">
                 {/* Left Side: Original */}

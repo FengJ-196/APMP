@@ -16,6 +16,105 @@ import {
   Image as ImageIcon 
 } from 'lucide-react';
 
+function parseIncompleteJSONArray(text: string): any[] {
+  const results: any[] = [];
+  const startIdx = text.indexOf('[');
+  if (startIdx === -1) return [];
+  
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let currentObjectStart = -1;
+  
+  for (let i = startIdx + 1; i < text.length; i++) {
+    const char = text[i];
+    
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (!inString) {
+      if (char === '{') {
+        if (depth === 0) {
+          currentObjectStart = i;
+        }
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0 && currentObjectStart !== -1) {
+          const objStr = text.substring(currentObjectStart, i + 1);
+          try {
+            const parsedObj = JSON.parse(objStr);
+            results.push(parsedObj);
+          } catch (e) {
+            // Ignore incomplete or invalid objects
+          }
+          currentObjectStart = -1;
+        }
+      }
+    }
+  }
+  
+  return results;
+}
+
+function cleanUnescapedQuotes(jsonStr: string): string {
+  let result = '';
+  let inString = false;
+  
+  for (let i = 0; i < jsonStr.length; i++) {
+    const char = jsonStr[i];
+    
+    if (char === '\\') {
+      result += char;
+      if (i + 1 < jsonStr.length) {
+        result += jsonStr[i + 1];
+        i++;
+      }
+      continue;
+    }
+    
+    if (char === '"') {
+      if (!inString) {
+        inString = true;
+        result += char;
+      } else {
+        // Look ahead to check if this quote is structural
+        let nextNonWhitespace = '';
+        for (let j = i + 1; j < jsonStr.length; j++) {
+          if (!/\s/.test(jsonStr[j])) {
+            nextNonWhitespace = jsonStr[j];
+            break;
+          }
+        }
+        
+        const isStructural = [',', '}', ']', ':'].includes(nextNonWhitespace);
+        if (isStructural) {
+          inString = false;
+          result += char;
+        } else {
+          result += '\\"';
+        }
+      }
+    } else {
+      result += char;
+    }
+  }
+  
+  return result;
+}
+
 interface ConflictPanelProps {
   projectId: string;
   sourceOfTruthContent: string;
@@ -39,6 +138,7 @@ export default function ConflictPanel({ projectId, sourceOfTruthContent, onApply
         }
       } catch (err: any) {
         console.error('Error fetching existing conflicts:', err);
+        setError(err.message || 'Failed to fetch existing conflicts.');
       }
     };
     fetchExisting();
@@ -87,7 +187,19 @@ export default function ConflictPanel({ projectId, sourceOfTruthContent, onApply
       // Try to parse the complete JSON response at the end of the stream
       try {
         const cleanJson = runningText.replace(/```json|```/g, "").trim();
-        const parsed = JSON.parse(cleanJson);
+        const sanitizedJson = cleanUnescapedQuotes(cleanJson);
+        let parsed;
+        try {
+          parsed = JSON.parse(sanitizedJson);
+        } catch (initialParseErr) {
+          // Fallback to robust parsing of incomplete/wrapped JSON arrays
+          const extracted = parseIncompleteJSONArray(sanitizedJson);
+          if (extracted.length > 0) {
+            parsed = extracted;
+          } else {
+            throw initialParseErr;
+          }
+        }
         setReports(Array.isArray(parsed) ? parsed : []);
       } catch (parseErr) {
         console.error('Failed to parse final streamed JSON:', parseErr);

@@ -31,4 +31,19 @@ export const projectsApi = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+
+  /**
+   * Get WBS Configuration for a project.
+   */
+  getWBSConfig: (projectId: string) => 
+    fetchClient<any>(`/api/projects/${projectId}/wbs/config`, { method: 'GET' }),
+
+  /**
+   * Save/Update WBS Configuration for a project.
+   */
+  saveWBSConfig: (projectId: string, data: any) => 
+    fetchClient<any>(`/api/projects/${projectId}/wbs/config`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
 };

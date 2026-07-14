@@ -70,6 +70,7 @@ export class OAuthService {
       state: state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
+      scope: 'repo', // Request permissions to read/write repositories and issues
     });
 
     return `https://github.com/login/oauth/authorize?${params.toString()}`;

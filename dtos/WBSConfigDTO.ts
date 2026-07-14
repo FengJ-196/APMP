@@ -20,6 +20,10 @@ export const WBSConfigSchema = z.object({
     expectedDurationMonths: z.number().optional(),
     sprintLengthWeeks: z.number().optional(),
   }).default({}),
+
+  customPromptInstructions: z.string()
+    .max(2000, 'Custom prompt instructions must be under 2000 characters')
+    .default(''),
 });
 
 export type WBSConfigDTO = z.infer<typeof WBSConfigSchema> & {

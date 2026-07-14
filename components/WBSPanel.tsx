@@ -15,7 +15,8 @@ import {
   X,
   Settings,
   Link2,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 import { projectsApi, integrationsApi } from '@/lib/api';
 
@@ -90,7 +91,6 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
   const [jiraToken, setJiraToken] = useState('');
   const [isJiraOAuth, setIsJiraOAuth] = useState(false);
   const [isGitHubOAuth, setIsGitHubOAuth] = useState(false);
-  const [showManualSyncOverride, setShowManualSyncOverride] = useState(false);
 
   // Sync statuses per item
   const [syncStates, setSyncStates] = useState<Record<string, { type: 'github' | 'jira'; status: 'syncing' | 'success' | 'error'; message?: string }>>({});
@@ -101,10 +101,87 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
   const [expandedEstimateIds, setExpandedEstimateIds] = useState<Record<string, boolean>>({});
   const [estimatingAll, setEstimatingAll] = useState(false);
 
+  // WBS Config States
+  const [isConfigExpanded, setIsConfigExpanded] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [methodology, setMethodology] = useState<'scrum' | 'kanban' | 'waterfall'>('scrum');
+  const [languagesInput, setLanguagesInput] = useState('');
+  const [frameworksInput, setFrameworksInput] = useState('');
+  const [databasesInput, setDatabasesInput] = useState('');
+  const [cloudInput, setCloudInput] = useState('');
+  const [teamComposition, setTeamComposition] = useState('');
+  const [complianceInput, setComplianceInput] = useState('');
+  const [integrationsInput, setIntegrationsInput] = useState('');
+  const [expectedDurationMonths, setExpectedDurationMonths] = useState<number | ''>('');
+  const [sprintLengthWeeks, setSprintLengthWeeks] = useState<number | ''>('');
+  const [customPromptInstructions, setCustomPromptInstructions] = useState('');
+
   useEffect(() => {
     fetchWBS();
     loadIntegrationSettings();
+    loadWBSConfig();
   }, [projectId]);
+
+  const loadWBSConfig = async () => {
+    try {
+      const config = await projectsApi.getWBSConfig(projectId);
+      if (config) {
+        setMethodology(config.methodology ?? 'scrum');
+        setLanguagesInput((config.techStack?.languages ?? []).join(', '));
+        setFrameworksInput((config.techStack?.frameworks ?? []).join(', '));
+        setDatabasesInput((config.techStack?.databases ?? []).join(', '));
+        setCloudInput((config.techStack?.cloud ?? []).join(', '));
+        setTeamComposition(config.teamComposition ?? '');
+        setComplianceInput((config.compliance ?? []).join(', '));
+        setIntegrationsInput((config.integrations ?? []).join(', '));
+        setExpectedDurationMonths(config.timeline?.expectedDurationMonths ?? '');
+        setSprintLengthWeeks(config.timeline?.sprintLengthWeeks ?? '');
+        setCustomPromptInstructions(config.customPromptInstructions ?? '');
+      }
+    } catch (err: any) {
+      console.error('Failed to load WBS Config:', err);
+    }
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingConfig(true);
+      setError(null);
+      
+      const parseCsv = (val: string) => 
+        val.split(',')
+          .map(t => t.trim())
+          .filter(t => t.length > 0);
+
+      const payload = {
+        methodology,
+        techStack: {
+          languages: parseCsv(languagesInput),
+          frameworks: parseCsv(frameworksInput),
+          databases: parseCsv(databasesInput),
+          cloud: parseCsv(cloudInput),
+        },
+        teamComposition,
+        compliance: parseCsv(complianceInput),
+        integrations: parseCsv(integrationsInput),
+        timeline: {
+          expectedDurationMonths: expectedDurationMonths !== '' ? Number(expectedDurationMonths) : undefined,
+          sprintLengthWeeks: sprintLengthWeeks !== '' ? Number(sprintLengthWeeks) : undefined,
+        },
+        customPromptInstructions,
+      };
+
+      await projectsApi.saveWBSConfig(projectId, payload);
+      setSuccessMessage('WBS Config saved successfully!');
+      setIsConfigExpanded(false);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save configuration');
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -396,6 +473,54 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
     }
   };
 
+  const handleDeleteAllWBS = async () => {
+    if (!confirm('Are you sure you want to delete ALL WBS items for this project? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch(`/api/projects/${projectId}/wbs`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+      if (!res.ok) throw new Error('Failed to delete WBS items.');
+      setItems([]);
+      setSuccessMessage('All WBS items have been successfully deleted.');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Could not delete WBS items.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteWBSItem = async (itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this item? It will also recursively delete all its children.')) {
+      return;
+    }
+    try {
+      setError(null);
+      const res = await fetch(`/api/wbs/${itemId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+      if (!res.ok) throw new Error('Failed to delete WBS item.');
+      await fetchWBS();
+      setSuccessMessage('WBS item and its children deleted successfully.');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Could not delete WBS item.');
+    }
+  };
+
   const handleBreakdownTask = async (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
@@ -597,6 +722,30 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
             </button>
           )}
 
+          {items.length > 0 && (
+            <button
+              onClick={handleDeleteAllWBS}
+              disabled={generating || loading}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-status-error-glow hover:bg-status-error border border-status-error/25 hover:border-status-error text-status-error hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs font-bold"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Remove All Tasks</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsConfigExpanded(!isConfigExpanded)}
+            disabled={generating || loading}
+            className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs font-bold ${
+              isConfigExpanded 
+                ? 'bg-accent-subtle border-accent-primary text-accent-primary' 
+                : 'bg-bg-elevated hover:bg-bg-elevated-hover border-border-subtle hover:border-border-focus text-text-primary'
+            }`}
+          >
+            <Settings className={`w-4 h-4 ${isConfigExpanded ? 'text-accent-primary animate-spin-slow' : 'text-text-secondary'}`} />
+            <span>{isConfigExpanded ? 'Hide Config' : 'Configure AI'}</span>
+          </button>
+
           <button
             onClick={handleGenerateWBS}
             disabled={generating || loading}
@@ -616,6 +765,214 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
           </button>
         </div>
       </div>
+
+      {/* Inline Expandable WBS Config Panel */}
+      {isConfigExpanded && (
+        <div className="mx-6 my-4 p-6 bg-bg-elevated/40 border border-border-focus rounded-2xl shadow-xl transition-all duration-300 ease-in-out text-left animate-slide-down">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-border-subtle/50 pb-3 mb-5">
+            <div className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-accent-primary animate-spin-slow" />
+              <h3 className="text-sm font-bold text-text-primary">WBS Decomposition Configuration</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsConfigExpanded(false)}
+              className="p-1 rounded-lg hover:bg-bg-elevated text-text-tertiary hover:text-text-primary transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Form Content */}
+          <form onSubmit={handleSaveConfig} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Methodology */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Methodology</label>
+                <select
+                  value={methodology}
+                  onChange={(e) => setMethodology(e.target.value as any)}
+                  className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary cursor-pointer"
+                >
+                  <option value="scrum">Scrum (Agile)</option>
+                  <option value="kanban">Kanban</option>
+                  <option value="waterfall">Waterfall</option>
+                </select>
+              </div>
+
+              {/* Expected Duration */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Expected Duration (Months)</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 6"
+                  value={expectedDurationMonths}
+                  onChange={(e) => setExpectedDurationMonths(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                />
+              </div>
+
+              {/* Sprint Length */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Sprint Length (Weeks)</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 2"
+                  value={sprintLengthWeeks}
+                  onChange={(e) => setSprintLengthWeeks(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                />
+              </div>
+
+              {/* Team Composition */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Team Composition</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2 Frontend, 2 Backend, 1 QA"
+                  value={teamComposition}
+                  onChange={(e) => setTeamComposition(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-border-subtle/30 pt-4 space-y-4">
+              <h4 className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Technology Stack (Comma separated)</h4>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Languages */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-medium text-text-secondary">Languages</label>
+                  <input
+                    type="text"
+                    placeholder="TypeScript, Python, SQL..."
+                    value={languagesInput}
+                    onChange={(e) => setLanguagesInput(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                  />
+                </div>
+
+                {/* Frameworks */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-medium text-text-secondary">Frameworks</label>
+                  <input
+                    type="text"
+                    placeholder="React, Next.js, FastAPI..."
+                    value={frameworksInput}
+                    onChange={(e) => setFrameworksInput(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                  />
+                </div>
+
+                {/* Databases */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-medium text-text-secondary">Databases</label>
+                  <input
+                    type="text"
+                    placeholder="MongoDB, PostgreSQL, Qdrant..."
+                    value={databasesInput}
+                    onChange={(e) => setDatabasesInput(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                  />
+                </div>
+
+                {/* Cloud */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-medium text-text-secondary">Cloud & Infrastructure</label>
+                  <input
+                    type="text"
+                    placeholder="AWS, Docker, Vercel..."
+                    value={cloudInput}
+                    onChange={(e) => setCloudInput(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border-subtle/30 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Compliance */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Compliance & Security (Comma separated)</label>
+                <input
+                  type="text"
+                  placeholder="OWASP, GDPR, HIPAA..."
+                  value={complianceInput}
+                  onChange={(e) => setComplianceInput(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                />
+              </div>
+
+              {/* Integrations */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Third-Party Integrations (Comma separated)</label>
+                <input
+                  type="text"
+                  placeholder="Stripe, SendGrid, Auth0..."
+                  value={integrationsInput}
+                  onChange={(e) => setIntegrationsInput(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary"
+                />
+              </div>
+            </div>
+
+            {/* Custom Prompt Instructions */}
+            <div className="border-t border-border-subtle/30 pt-4 space-y-1.5">
+              <label className="text-[10px] font-bold text-text-tertiary uppercase tracking-wider">Custom AI Prompt Instructions & Guidelines</label>
+              <textarea
+                rows={4}
+                placeholder="e.g. Ensure all task descriptions contain a security verification step. Map databases specifically using Prisma Client..."
+                value={customPromptInstructions}
+                onChange={(e) => setCustomPromptInstructions(e.target.value)}
+                className="w-full text-xs px-3 py-2 bg-bg-base border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-accent-primary font-mono resize-y"
+              />
+              <p className="text-[10px] text-text-tertiary leading-relaxed">
+                These instructions will be appended to the AI generation prompt as critical system rules. Use this to refine task granularity or coding standards.
+              </p>
+            </div>
+
+            {/* Error messages */}
+            {error && (
+              <div className="p-3 rounded-lg bg-status-error-glow border border-status-error/30 text-status-error text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Form Actions */}
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-border-subtle/30">
+              <button
+                type="button"
+                onClick={() => setIsConfigExpanded(false)}
+                className="px-4 py-2 rounded-lg bg-bg-elevated hover:bg-bg-elevated-hover text-text-secondary hover:text-text-primary text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+              >
+                {savingConfig ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    Save Configuration
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Sync Configurations Display & Override block */}
       <div className="px-6 py-4 bg-bg-base/30 border-b border-border-subtle flex flex-col gap-4">
@@ -668,74 +1025,7 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
           </div>
         </div>
 
-        {/* Option to show manual config override forms */}
-        <div className="border-t border-border-subtle/40 pt-3">
-          <button
-            onClick={() => setShowManualSyncOverride(!showManualSyncOverride)}
-            className="text-[10px] text-text-tertiary hover:text-accent-primary font-bold flex items-center gap-1 focus:outline-none cursor-pointer"
-          >
-            <Settings className="w-3 h-3" />
-            <span>{showManualSyncOverride ? 'Hide Advanced Credentials Override' : 'Show Advanced Credentials Override'}</span>
-          </button>
 
-          {showManualSyncOverride && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-3 p-3 bg-bg-base/50 rounded-xl border border-border-subtle/30 animate-fade-in-up">
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-text-secondary uppercase">GitHub Override</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="Owner" 
-                    value={ghOwner} 
-                    onChange={e => setGhOwner(e.target.value)}
-                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-                  />
-                  <input 
-                    type="text" 
-                    placeholder="Repo" 
-                    value={ghRepo} 
-                    onChange={e => setGhRepo(e.target.value)}
-                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-                  />
-                </div>
-              </div>
-
-              <div className="lg:col-span-2 space-y-2">
-                <span className="text-[10px] font-bold text-text-secondary uppercase">Jira Override (Basic Auth credentials)</span>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="Proj Key" 
-                    value={jiraProjectKey} 
-                    onChange={e => setJiraProjectKey(e.target.value)}
-                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-                  />
-                  <input 
-                    type="text" 
-                    placeholder="Jira Email" 
-                    value={jiraEmail} 
-                    onChange={e => setJiraEmail(e.target.value)}
-                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-                  />
-                  <input 
-                    type="text" 
-                    placeholder="Jira Domain" 
-                    value={jiraDomain} 
-                    onChange={e => setJiraDomain(e.target.value)}
-                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-                  />
-                  <input 
-                    type="password" 
-                    placeholder="Jira Token" 
-                    value={jiraToken} 
-                    onChange={e => setJiraToken(e.target.value)}
-                    className="text-xs p-1.5 bg-bg-base border border-border-subtle rounded text-text-primary focus:outline-none focus:border-accent-primary" 
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {error && (
@@ -819,9 +1109,18 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
                       {epic.description && <p className="text-xs text-text-secondary mt-1 max-w-2xl">{epic.description}</p>}
                     </div>
                   </div>
-                  <span className="text-xs font-mono text-text-tertiary font-bold bg-bg-base border border-border-subtle px-2 py-0.5 rounded">
-                    {epicStories.length} Stories
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-text-tertiary font-bold bg-bg-base border border-border-subtle px-2 py-0.5 rounded">
+                      {epicStories.length} Stories
+                    </span>
+                    <button
+                      onClick={(e) => handleDeleteWBSItem(epic.id, e)}
+                      className="p-1.5 rounded-lg bg-bg-base hover:bg-status-error-glow text-text-tertiary hover:text-status-error border border-border-subtle hover:border-status-error/35 transition-all cursor-pointer"
+                      title="Delete Epic (recursive)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Epic content (Stories) */}
@@ -847,9 +1146,18 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
                                 <h4 className="font-semibold text-text-primary text-sm mt-1">{story.title}</h4>
                               </div>
                             </div>
-                            <span className="text-[10px] font-mono text-text-tertiary font-semibold bg-bg-base border border-border-subtle px-1.5 py-0.5 rounded">
-                              {storyTasks.length} Tasks
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-text-tertiary font-semibold bg-bg-base border border-border-subtle px-1.5 py-0.5 rounded">
+                                {storyTasks.length} Tasks
+                              </span>
+                              <button
+                                onClick={(e) => handleDeleteWBSItem(story.id, e)}
+                                className="p-1 rounded-lg bg-bg-base hover:bg-status-error-glow text-text-tertiary hover:text-status-error border border-border-subtle hover:border-status-error/35 transition-all cursor-pointer"
+                                title="Delete Story (recursive)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Story content (Tasks) */}
@@ -1000,6 +1308,13 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
                                             <TrelloIcon className="w-3.5 h-3.5" />
                                           )}
                                         </button>
+                                        <button
+                                          onClick={(e) => handleDeleteWBSItem(task.id, e)}
+                                          className="flex items-center justify-center p-1.5 rounded-lg border border-border-subtle text-text-tertiary hover:text-status-error hover:bg-status-error-glow hover:border-status-error/35 transition-all cursor-pointer"
+                                          title="Delete Task (recursive)"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
                                       </div>
                                     </div>
 
@@ -1114,6 +1429,13 @@ export default function WBSPanel({ projectId }: { projectId: string }) {
                                                   <h6 className="text-[11px] font-bold text-text-primary">{subtask.title}</h6>
                                                   {subtask.description && <p className="text-[10px] text-text-secondary mt-0.5">{subtask.description}</p>}
                                                 </div>
+                                                <button
+                                                  onClick={(e) => handleDeleteWBSItem(subtask.id, e)}
+                                                  className="p-1 rounded-lg bg-bg-base hover:bg-status-error-glow text-text-tertiary hover:text-status-error border border-border-subtle hover:border-status-error/35 transition-all cursor-pointer shrink-0"
+                                                  title="Delete Subtask"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
                                               </div>
                                             ))}
                                           </div>

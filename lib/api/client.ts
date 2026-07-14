@@ -51,7 +51,13 @@ export async function fetchClient<T>(
   }
 
   if (!response.ok) {
-    if (response.status === 401 && typeof window !== 'undefined' && !endpoint.includes('/api/auth/')) {
+    const isIntegrationEndpoint = endpoint.includes('/api/github/') || endpoint.includes('/api/jira/');
+    if (
+      response.status === 401 &&
+      typeof window !== 'undefined' &&
+      !endpoint.includes('/api/auth/') &&
+      !isIntegrationEndpoint
+    ) {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('userId');

@@ -4,7 +4,6 @@ import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useProjectStore } from '@/lib/store/projectStore';
-import Navbar from '@/components/Navbar';
 import { 
   FileText, 
   FileSignature, 
@@ -27,7 +26,7 @@ export default function ProjectWorkspaceLayout({
   const pathname = usePathname();
   const router = useRouter();
   
-  const { setProjectId, project, loading, error } = useProjectStore();
+  const { setProjectId, project, loading, error, setUserId } = useProjectStore();
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -35,10 +34,16 @@ export default function ProjectWorkspaceLayout({
       router.push('/login');
       return;
     }
+    const storedUserId = localStorage.getItem('userId');
+    if (storedUserId) {
+      setUserId(storedUserId);
+    } else {
+      setUserId('645a1b2c3d4e5f6a7b8c9d0e');
+    }
     if (id) {
       setProjectId(id);
     }
-  }, [id, setProjectId, router]);
+  }, [id, setProjectId, router, setUserId]);
 
   // Sidebar navigation tabs
   const navItems = [
@@ -102,10 +107,7 @@ export default function ProjectWorkspaceLayout({
   }
 
   return (
-    <div className="min-h-screen bg-bg-base flex flex-col">
-      <Navbar />
-
-      <div className="flex flex-1 pt-16 h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex flex-1 h-[calc(100vh-64px)] overflow-hidden">
         
         {/* Workspace Sidebar */}
         <aside className="w-80 bg-bg-surface/50 border-r border-border-subtle flex flex-col justify-between hidden md:flex shrink-0">
@@ -119,7 +121,6 @@ export default function ProjectWorkspaceLayout({
               <h2 className="text-xl font-bold text-text-primary tracking-tight mt-2 truncate" title={project?.title}>
                 {project?.title}
               </h2>
-              <span className="text-[10px] text-text-tertiary font-mono block mt-0.5">ID: {project?.id}</span>
             </div>
 
             {/* Sidebar Navigation */}
@@ -191,7 +192,6 @@ export default function ProjectWorkspaceLayout({
             {children}
           </div>
         </main>
-      </div>
     </div>
   );
 }
